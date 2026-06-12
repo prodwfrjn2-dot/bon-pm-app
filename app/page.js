@@ -153,7 +153,7 @@ export default function Home() {
         {/* Form BON PM */}
         <div className="bg-white rounded-xl shadow p-4 md:p-6">
           <h1 className="text-xl md:text-2xl font-bold mb-4 flex items-center gap-2">
-            📋 BON PM Wafer
+            📋 BON PM WAFER JAYANTI 2
           </h1>
 
           {/* Nama & Shift & Line */}
