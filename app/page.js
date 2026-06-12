@@ -86,9 +86,6 @@ export default function Home() {
   const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
   const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
 
-  const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
-  const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
-
   const generateNoBon = () => {
     const now = new Date();
     const tgl = now.toISOString().slice(0, 10).replace(/-/g, "");
