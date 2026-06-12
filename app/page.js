@@ -9,6 +9,8 @@ export default function Home() {
   const [namaPembuat, setNamaPembuat] = useState("");
   const [shift, setShift] = useState("");
   const [line, setLine] = useState("");
+  const [tujuan, setTujuan] = useState("");
+  const [keterangan, setKeterangan] = useState("");
   const [qtyMap, setQtyMap] = useState({});
   const [selectedTapes, setSelectedTapes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -94,7 +96,7 @@ export default function Home() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedSku || !namaPembuat || !shift || !line) {
+    if (!selectedSku || !namaPembuat || !shift || !line || !tujuan) {
       setPesan("⚠️ Lengkapi semua field terlebih dahulu!");
       return;
     }
@@ -123,6 +125,8 @@ export default function Home() {
         nama_pembuat: namaPembuat,
         shift,
         line,
+        tujuan,
+        keterangan,
         sku_produk: selectedSku,
         nama_produk: selectedNama,
         items,
@@ -138,6 +142,8 @@ export default function Home() {
       setNamaPembuat("");
       setShift("");
       setLine("");
+      setTujuan("");
+      setKeterangan("");
       setQtyMap({});
       setSelectedTapes([]);
       fetchHistory(filterTanggal);
@@ -194,6 +200,31 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Tujuan & Keterangan */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Tujuan</label>
+              <select
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                value={tujuan}
+                onChange={(e) => setTujuan(e.target.value)}
+              >
+                <option value="">-- Pilih Tujuan --</option>
+                <option value="Ekspor">Ekspor</option>
+                <option value="Lokal">Lokal</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Keterangan</label>
+              <input
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                placeholder="Opsional"
+                value={keterangan}
+                onChange={(e) => setKeterangan(e.target.value)}
+              />
+            </div>
+          </div>
+
           {/* Pilih Produk */}
           <div className="mb-4">
             <label className="block text-sm font-medium mb-1">Pilih Produk</label>
@@ -226,7 +257,7 @@ export default function Home() {
                 }}
                 defaultValue=""
               >
-                <option value="">-- Tambah Packing Tape --</option>
+                <option value="">-- Tambah PM --</option>
                 {packingTapes
                   .filter((t) => !selectedTapes.find((s) => s.material_code === t.material_code))
                   .map((t) => (
