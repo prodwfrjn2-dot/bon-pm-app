@@ -21,6 +21,11 @@ export default function Home() {
   );
   const [filterLine, setFilterLine] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [modalVerif, setModalVerif] = useState(null);
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [verifLoading, setVerifLoading] = useState(false);
+  const [verifPesan, setVerifPesan] = useState("");
 
   useEffect(() => {
     fetch("/api/produk")
@@ -152,6 +157,39 @@ export default function Home() {
     }
   };
 
+  const handleVerif = async () => {
+    if (!loginUsername || !loginPassword) {
+      setVerifPesan("⚠️ Isi username dan password!");
+      return;
+    }
+    setVerifLoading(true);
+    setVerifPesan("");
+    const res = await fetch("/api/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: loginUsername,
+        password: loginPassword,
+        tipe: modalVerif.tipe,
+        no_bon: modalVerif.no_bon,
+      }),
+    });
+    const data = await res.json();
+    setVerifLoading(false);
+    if (data.success) {
+      setVerifPesan(`✅ Terverifikasi oleh ${data.nama}`);
+      fetchHistory(filterTanggal);
+      setTimeout(() => {
+        setModalVerif(null);
+        setLoginUsername("");
+        setLoginPassword("");
+        setVerifPesan("");
+      }, 1500);
+    } else {
+      setVerifPesan("❌ " + data.error);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-gray-100 p-3 md:p-6">
       <div className="max-w-4xl mx-auto space-y-4">
@@ -162,7 +200,6 @@ export default function Home() {
             📋 BON PM WAFER MI JAYANTI 2
           </h1>
 
-          {/* Nama & Shift & Line */}
           <div className="flex flex-col gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium mb-1">Nama Pembuat</label>
@@ -200,7 +237,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Tujuan & Keterangan */}
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium mb-1">Tujuan</label>
@@ -225,7 +261,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Pilih Produk */}
           <div className="mb-4">
             <label className="block text-sm font-medium mb-1">Pilih Produk</label>
             <select
@@ -242,12 +277,10 @@ export default function Home() {
             </select>
           </div>
 
-          {/* Daftar Bahan PM */}
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2">
               Daftar Bahan PM (Otomatis dari BOM)
             </label>
-
             {packingTapes.length > 0 && (
               <select
                 className="w-full border rounded-lg px-3 py-2 text-sm mb-3"
@@ -267,7 +300,6 @@ export default function Home() {
                   ))}
               </select>
             )}
-
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-xs md:text-sm">
                 <thead className="bg-gray-100">
@@ -413,6 +445,43 @@ export default function Home() {
                       ))}
                     </tbody>
                   </table>
+
+                  {/* Tombol Verifikasi */}
+                  <div className="px-3 py-2 bg-gray-50 border-t flex gap-2 flex-wrap">
+                    <div className="flex-1 min-w-[140px]">
+                      {group.items[0]?.verif_fisik_by ? (
+                        <div className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
+                          ✅ <span className="font-semibold">Fisik:</span> {group.items[0].verif_fisik_by}
+                          <br />
+                          <span className="text-gray-400">{group.items[0].verif_fisik_at}</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setModalVerif({ no_bon: group.items[0].no_bon, tipe: "fisik" })}
+                          className="w-full bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-2 rounded-lg"
+                        >
+                          ✅ Verif Penerimaan Fisik
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-[140px]">
+                      {group.items[0]?.verif_sap_by ? (
+                        <div className="text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
+                          🖥️ <span className="font-semibold">SAP:</span> {group.items[0].verif_sap_by}
+                          <br />
+                          <span className="text-gray-400">{group.items[0].verif_sap_at}</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setModalVerif({ no_bon: group.items[0].no_bon, tipe: "sap" })}
+                          className="w-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2 rounded-lg"
+                        >
+                          🖥️ Verif Input SAP
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                 </div>
               ))}
             </div>
@@ -420,6 +489,65 @@ export default function Home() {
         </div>
 
       </div>
+
+      {/* Modal Verifikasi */}
+      {modalVerif && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-1">
+              {modalVerif.tipe === "fisik" ? "✅ Verifikasi Penerimaan Fisik" : "🖥️ Verifikasi Input SAP"}
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">No BON: {modalVerif.no_bon}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Username</label>
+                <input
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  placeholder="Username"
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Password</label>
+                <input
+                  type="password"
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  placeholder="Password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                />
+              </div>
+            </div>
+            {verifPesan && (
+              <div className="mt-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">
+                {verifPesan}
+              </div>
+            )}
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => {
+                  setModalVerif(null);
+                  setLoginUsername("");
+                  setLoginPassword("");
+                  setVerifPesan("");
+                }}
+                className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleVerif}
+                disabled={verifLoading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl py-2 text-sm"
+              >
+                {verifLoading ? "Memverifikasi..." : "Verifikasi"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </main>
   );
 }
