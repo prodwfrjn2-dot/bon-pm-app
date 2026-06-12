@@ -78,13 +78,16 @@ export default function Home() {
     );
   };
 
-  const packingTapes = bomList.filter((b) =>
-    b.nama_pm?.toUpperCase().includes("PACKING TAPE")
-  );
+  const isOptional = (nama) => {
+    const n = nama?.toUpperCase() || "";
+    return n.includes("PACKING TAPE") || n.includes("TTR") || n.includes("CATRIDGE") || n.includes("THERMAL TRANSFER");
+  };
 
-  const nonTapes = bomList.filter((b) =>
-    !b.nama_pm?.toUpperCase().includes("PACKING TAPE")
-  );
+  const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
+  const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
+
+  const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
+  const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
 
   const generateNoBon = () => {
     const now = new Date();
@@ -153,7 +156,7 @@ export default function Home() {
         {/* Form BON PM */}
         <div className="bg-white rounded-xl shadow p-4 md:p-6">
           <h1 className="text-xl md:text-2xl font-bold mb-4 flex items-center gap-2">
-            📋 BON PM WAFER JAYANTI 2
+            📋 BON PM WAFER MI JAYANTI 2
           </h1>
 
           {/* Nama & Shift & Line */}
