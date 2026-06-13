@@ -21,13 +21,23 @@ export default function Home() {
   );
   const [filterLine, setFilterLine] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // State modal kirim
   const [modalKirim, setModalKirim] = useState(null);
-  // modalKirim: { no_bon, material_code, nama_pm, nama_pembuat, qty_bon, uom }
   const [qtyKirim, setQtyKirim] = useState("");
+  const [namaKirim, setNamaKirim] = useState("");
+  const [passwordKirim, setPasswordKirim] = useState("");
   const [kirimLoading, setKirimLoading] = useState(false);
   const [kirimPesan, setKirimPesan] = useState("");
   const [riwayatKirim, setRiwayatKirim] = useState({});
-  // riwayatKirim: { [no_bon]: [ {material_code, qty_kirim, jam_kirim, nama_pembuat} ] }
+
+  // State modal ceklis
+  const [modalCeklis, setModalCeklis] = useState(null);
+  const [passwordCeklis, setPasswordCeklis] = useState("");
+  const [ceklisLoading, setCeklisLoading] = useState(false);
+  const [ceklisPesan, setCeklisPesan] = useState("");
+  const [statusCeklis, setStatusCeklis] = useState({});
+  // statusCeklis: { [no_bon]: { sudah_ceklis, jam_ceklis } }
 
   useEffect(() => {
     fetch("/api/produk")
@@ -62,6 +72,15 @@ export default function Home() {
     const res = await fetch(`/api/pengiriman?no_bon=${no_bon}`);
     const data = await res.json();
     setRiwayatKirim((prev) => ({ ...prev, [no_bon]: data.data || [] }));
+  };
+
+  const fetchStatusCeklis = async (no_bon) => {
+    const res = await fetch(`/api/ceklis?no_bon=${no_bon}`);
+    const data = await res.json();
+    setStatusCeklis((prev) => ({
+      ...prev,
+      [no_bon]: { sudah_ceklis: data.sudah_ceklis, jam_ceklis: data.jam_ceklis },
+    }));
   };
 
   const handleProdukChange = (e) => {
@@ -175,11 +194,21 @@ export default function Home() {
       uom: item.uom,
     });
     setQtyKirim("");
+    setNamaKirim("");
+    setPasswordKirim("");
     setKirimPesan("");
     fetchRiwayatKirim(item.no_bon);
   };
 
   const handleKirim = async () => {
+    if (!namaKirim.trim()) {
+      setKirimPesan("⚠️ Nama pengirim wajib diisi!");
+      return;
+    }
+    if (!passwordKirim) {
+      setKirimPesan("⚠️ Password wajib diisi!");
+      return;
+    }
     if (!qtyKirim || Number(qtyKirim) <= 0) {
       setKirimPesan("⚠️ Masukkan qty yang valid!");
       return;
@@ -194,7 +223,9 @@ export default function Home() {
         material_code: modalKirim.material_code,
         nama_pm: modalKirim.nama_pm,
         qty_kirim: Number(qtyKirim),
-        nama_pembuat: modalKirim.nama_pembuat,
+        nama_pembuat: namaKirim,
+        password: passwordKirim,
+        qty_bon: modalKirim.qty_bon,
       }),
     });
     const data = await res.json();
@@ -202,9 +233,48 @@ export default function Home() {
     if (data.success) {
       setKirimPesan(`✅ Terkirim ${qtyKirim} ${modalKirim.uom} pada ${data.jam_kirim}`);
       setQtyKirim("");
+      setNamaKirim("");
+      setPasswordKirim("");
       fetchRiwayatKirim(modalKirim.no_bon);
     } else {
       setKirimPesan("❌ " + data.error);
+    }
+  };
+
+  const handleOpenCeklis = (no_bon) => {
+    setModalCeklis({ no_bon });
+    setPasswordCeklis("");
+    setCeklisPesan("");
+    fetchStatusCeklis(no_bon);
+  };
+
+  const handleCeklis = async () => {
+    if (!passwordCeklis) {
+      setCeklisPesan("⚠️ Password wajib diisi!");
+      return;
+    }
+    setCeklisLoading(true);
+    setCeklisPesan("");
+    const res = await fetch("/api/ceklis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        no_bon: modalCeklis.no_bon,
+        password: passwordCeklis,
+      }),
+    });
+    const data = await res.json();
+    setCeklisLoading(false);
+    if (data.success) {
+      setCeklisPesan(`✅ Berhasil diceklis pada ${data.jam_ceklis}`);
+      fetchStatusCeklis(modalCeklis.no_bon);
+      setTimeout(() => {
+        setModalCeklis(null);
+        setPasswordCeklis("");
+        setCeklisPesan("");
+      }, 1500);
+    } else {
+      setCeklisPesan("❌ " + data.error);
     }
   };
 
@@ -443,54 +513,75 @@ export default function Home() {
                     acc[key].items.push(row);
                     return acc;
                   }, {})
-              ).map(([key, group]) => (
-                <div key={key} className="border rounded-lg overflow-hidden">
-                  <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
-                    <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
-                    <span>{group.tanggal}</span>
+              ).map(([key, group]) => {
+                const noBon = group.items[0]?.no_bon;
+                const ceklisInfo = statusCeklis[noBon];
+                return (
+                  <div key={key} className="border rounded-lg overflow-hidden">
+                    <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
+                      <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
+                      <span>{group.tanggal}</span>
+                    </div>
+                    <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">
+                      {group.nama_produk}
+                    </div>
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="text-left px-3 py-1">Nama PM</th>
+                          <th className="text-left px-3 py-1">BON</th>
+                          <th className="text-left px-3 py-1">UOM</th>
+                          <th className="text-left px-3 py-1">Kirim</th>
+                          <th className="text-left px-3 py-1"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map((item, i) => {
+                          const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+                          const sudahLunas = totalKirim >= Number(item.qty_bon);
+                          return (
+                            <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
+                              <td className="px-3 py-1">{item.nama_pm}</td>
+                              <td className="px-3 py-1">{item.qty_bon}</td>
+                              <td className="px-3 py-1">{item.uom}</td>
+                              <td className="px-3 py-1">
+                                <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>
+                                  {totalKirim}
+                                </span>
+                              </td>
+                              <td className="px-3 py-1">
+                                <button
+                                  onClick={() => handleOpenKirim(item, group)}
+                                  className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
+                                >
+                                  🚚
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+
+                    {/* Ceklis Input Sistem */}
+                    <div className="px-3 py-2 bg-gray-50 border-t">
+                      {ceklisInfo?.sudah_ceklis ? (
+                        <div className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
+                          ✅ <span className="font-semibold">Sudah diinput ke sistem</span>
+                          <span className="text-gray-400 ml-2">{ceklisInfo.jam_ceklis}</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleOpenCeklis(noBon)}
+                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-lg"
+                        >
+                          ☑️ Tandai Sudah Input Sistem
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">
-                    {group.nama_produk}
-                  </div>
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="text-left px-3 py-1">Nama PM</th>
-                        <th className="text-left px-3 py-1">QTY BON</th>
-                        <th className="text-left px-3 py-1">UOM</th>
-                        <th className="text-left px-3 py-1">Terkirim</th>
-                        <th className="text-left px-3 py-1"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.items.map((item, i) => {
-                        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
-                        const sudahLunas = totalKirim >= Number(item.qty_bon);
-                        return (
-                          <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
-                            <td className="px-3 py-1">{item.nama_pm}</td>
-                            <td className="px-3 py-1">{item.qty_bon}</td>
-                            <td className="px-3 py-1">{item.uom}</td>
-                            <td className="px-3 py-1">
-                              <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>
-                                {totalKirim}
-                              </span>
-                            </td>
-                            <td className="px-3 py-1">
-                              <button
-                                onClick={() => handleOpenKirim(item, group)}
-                                className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg"
-                              >
-                                🚚 Kirim
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -505,7 +596,7 @@ export default function Home() {
             <p className="text-xs text-gray-500 mb-1">No BON: {modalKirim.no_bon}</p>
             <p className="text-sm font-medium mb-1">{modalKirim.nama_pm}</p>
             <p className="text-xs text-gray-500 mb-4">
-              QTY BON: {modalKirim.qty_bon} {modalKirim.uom} · 
+              QTY BON: {modalKirim.qty_bon} {modalKirim.uom} ·
               Sudah terkirim: {getTotalKirim(modalKirim.no_bon, modalKirim.material_code)} {modalKirim.uom}
             </p>
 
@@ -520,7 +611,7 @@ export default function Home() {
                     .filter((r) => r.material_code === modalKirim.material_code)
                     .map((r, i) => (
                       <div key={i} className="flex justify-between text-xs text-gray-600">
-                        <span>• {r.qty_kirim} {modalKirim.uom}</span>
+                        <span>• {r.qty_kirim} {modalKirim.uom} — {r.nama_pembuat}</span>
                         <span className="text-gray-400">{r.jam_kirim}</span>
                       </div>
                     ))}
@@ -528,17 +619,38 @@ export default function Home() {
               </div>
             )}
 
-            <div className="mb-3">
-              <label className="block text-sm font-medium mb-1">
-                QTY yang dikirim sekarang ({modalKirim.uom})
-              </label>
-              <input
-                type="number"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Masukkan qty"
-                value={qtyKirim}
-                onChange={(e) => setQtyKirim(e.target.value)}
-              />
+            <div className="space-y-3 mb-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama Pengirim</label>
+                <input
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  placeholder="Nama lengkap"
+                  value={namaKirim}
+                  onChange={(e) => setNamaKirim(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Password</label>
+                <input
+                  type="password"
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  placeholder="Password"
+                  value={passwordKirim}
+                  onChange={(e) => setPasswordKirim(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  QTY Kirim ({modalKirim.uom}) — sisa: {Number(modalKirim.qty_bon) - getTotalKirim(modalKirim.no_bon, modalKirim.material_code)}
+                </label>
+                <input
+                  type="number"
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  placeholder="Masukkan qty"
+                  value={qtyKirim}
+                  onChange={(e) => setQtyKirim(e.target.value)}
+                />
+              </div>
             </div>
 
             {kirimPesan && (
@@ -552,6 +664,8 @@ export default function Home() {
                 onClick={() => {
                   setModalKirim(null);
                   setQtyKirim("");
+                  setNamaKirim("");
+                  setPasswordKirim("");
                   setKirimPesan("");
                 }}
                 className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
@@ -564,6 +678,50 @@ export default function Home() {
                 className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl py-2 text-sm"
               >
                 {kirimLoading ? "Menyimpan..." : "🚚 Catat Kirim"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ceklis Input Sistem */}
+      {modalCeklis && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-1">☑️ Tandai Input Sistem</h3>
+            <p className="text-xs text-gray-500 mb-4">No BON: {modalCeklis.no_bon}</p>
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">Password</label>
+              <input
+                type="password"
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                placeholder="Masukkan password"
+                value={passwordCeklis}
+                onChange={(e) => setPasswordCeklis(e.target.value)}
+              />
+            </div>
+            {ceklisPesan && (
+              <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">
+                {ceklisPesan}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setModalCeklis(null);
+                  setPasswordCeklis("");
+                  setCeklisPesan("");
+                }}
+                className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleCeklis}
+                disabled={ceklisLoading}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-2 text-sm"
+              >
+                {ceklisLoading ? "Menyimpan..." : "✅ Konfirmasi"}
               </button>
             </div>
           </div>
