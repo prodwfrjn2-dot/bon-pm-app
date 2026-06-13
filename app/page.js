@@ -1,7 +1,5 @@
 "use client";
 import { useState, useEffect } from "react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 
 export default function Home() {
   const [produkList, setProdukList] = useState([]);
@@ -35,10 +33,12 @@ export default function Home() {
 
   // State modal ceklis per item
   const [modalCeklis, setModalCeklis] = useState(null);
+  // modalCeklis: { no_bon, material_code, nama_pm }
   const [passwordCeklis, setPasswordCeklis] = useState("");
   const [ceklisLoading, setCeklisLoading] = useState(false);
   const [ceklisPesan, setCeklisPesan] = useState("");
   const [statusCeklis, setStatusCeklis] = useState({});
+  // statusCeklis: { [no_bon]: [ {material_code, jam_ceklis} ] }
 
   useEffect(() => {
     fetch("/api/produk")
@@ -61,31 +61,11 @@ export default function Home() {
     fetchHistory(filterTanggal);
   }, [filterTanggal]);
 
-  // ─── fetchHistory: auto-fetch kirim & ceklis untuk semua no_bon ───
   const fetchHistory = async (tanggal) => {
     setLoadingHistory(true);
     const res = await fetch(`/api/history?tanggal=${tanggal}`);
     const data = await res.json();
-    const rows = data.data || [];
-    setHistory(rows);
-
-    // Ambil semua no_bon unik lalu fetch kirim & ceklis sekaligus
-    const noBonList = [...new Set(rows.map((r) => r.no_bon))];
-
-    await Promise.all(
-      noBonList.map(async (no_bon) => {
-        const [kirimRes, ceklisRes] = await Promise.all([
-          fetch(`/api/pengiriman?no_bon=${no_bon}`),
-          fetch(`/api/ceklis?no_bon=${no_bon}`),
-        ]);
-        const kirimData = await kirimRes.json();
-        const ceklisData = await ceklisRes.json();
-
-        setRiwayatKirim((prev) => ({ ...prev, [no_bon]: kirimData.data || [] }));
-        setStatusCeklis((prev) => ({ ...prev, [no_bon]: ceklisData.data || [] }));
-      })
-    );
-
+    setHistory(data.data || []);
     setLoadingHistory(false);
   };
 
@@ -140,12 +120,7 @@ export default function Home() {
 
   const isOptional = (nama) => {
     const n = nama?.toUpperCase() || "";
-    return (
-      n.includes("PACKING TAPE") ||
-      n.includes("TTR") ||
-      n.includes("CATRIDGE") ||
-      n.includes("THERMAL TRANSFER")
-    );
+    return n.includes("PACKING TAPE") || n.includes("TTR") || n.includes("CATRIDGE") || n.includes("THERMAL TRANSFER");
   };
 
   const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
@@ -262,19 +237,11 @@ export default function Home() {
     const data = await res.json();
     setKirimLoading(false);
     if (data.success) {
-      setKirimPesan(
-        `✅ Terkirim ${qtyKirim} ${modalKirim.uom} pada ${data.jam_kirim}`
-      );
+      setKirimPesan(`✅ Terkirim ${qtyKirim} ${modalKirim.uom} pada ${data.jam_kirim}`);
       setQtyKirim("");
       setNamaKirim("");
       setPasswordKirim("");
       fetchRiwayatKirim(modalKirim.no_bon);
-      // Refresh state kirim di tabel history juga
-      setRiwayatKirim((prev) => {
-        const updated = { ...prev };
-        fetchRiwayatKirim(modalKirim.no_bon);
-        return updated;
-      });
     } else {
       setKirimPesan("❌ " + data.error);
     }
@@ -327,137 +294,6 @@ export default function Home() {
     return riwayat
       .filter((r) => r.material_code === material_code)
       .reduce((sum, r) => sum + Number(r.qty_kirim), 0);
-  };
-
-  // ─── Download PDF ───────────────────────────────────────────────
-  const handleDownloadPDF = () => {
-    const doc = new jsPDF();
-
-    // Judul
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("History BON PM - WAFER MI JAYANTI 2", 14, 15);
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.text(
-      `Tanggal: ${filterTanggal}${filterLine ? "  |  Line: " + filterLine : "  |  Semua Line"}`,
-      14,
-      22
-    );
-
-    // Kelompokkan data sama seperti di UI
-    const grouped = Object.values(
-      history
-        .filter((row) => filterLine === "" || row.line === filterLine)
-        .reduce((acc, row) => {
-          const key = `${row.shift}-Line${row.line}-${row.nama_pembuat}`;
-          if (!acc[key]) acc[key] = { ...row, items: [] };
-          acc[key].items.push(row);
-          return acc;
-        }, {})
-    );
-
-    if (grouped.length === 0) return;
-
-    let startY = 30;
-
-    grouped.forEach((group) => {
-      // Tambah halaman baru jika hampir habis
-      if (startY > 240) {
-        doc.addPage();
-        startY = 15;
-      }
-
-      // Header grup — biru
-      doc.setFillColor(37, 99, 235);
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "bold");
-      doc.rect(14, startY, 182, 7, "F");
-      doc.text(
-        `${group.shift} · Line ${group.line} · ${group.nama_pembuat}`,
-        16,
-        startY + 5
-      );
-      doc.text(group.tanggal, 194, startY + 5, { align: "right" });
-      doc.setTextColor(0, 0, 0);
-      startY += 8;
-
-      // Nama produk
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(80, 80, 80);
-      doc.text(group.nama_produk || "", 14, startY + 4);
-      doc.setTextColor(0, 0, 0);
-      startY += 7;
-
-      // Tabel item
-      autoTable(doc, {
-        startY,
-        head: [["Nama PM", "BON", "Krm", "Status Kirim", "Ceklis"]],
-        body: group.items.map((item) => {
-          const totalKirim = getTotalKirim(item.no_bon, item.material_code);
-          const sudahLunas = totalKirim >= Number(item.qty_bon);
-          const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
-          return [
-            item.nama_pm,
-            `${item.qty_bon} ${item.uom}`,
-            String(totalKirim),
-            sudahLunas ? "Lunas" : "Belum",
-            ceklisInfo ? (ceklisInfo.jam_ceklis || "Ya") : "-",
-          ];
-        }),
-        styles: { fontSize: 7.5, cellPadding: 2 },
-        headStyles: {
-          fillColor: [243, 244, 246],
-          textColor: [30, 30, 30],
-          fontStyle: "bold",
-        },
-        bodyStyles: { textColor: [30, 30, 30] },
-        alternateRowStyles: { fillColor: [249, 250, 251] },
-        columnStyles: {
-          0: { cellWidth: 72 },
-          1: { cellWidth: 25 },
-          2: { cellWidth: 15 },
-          3: { cellWidth: 30 },
-          4: { cellWidth: 34 },
-        },
-        margin: { left: 14, right: 14 },
-        didDrawCell: (hookData) => {
-          // Warnai kolom "Status Kirim" sesuai kondisi
-          if (
-            hookData.section === "body" &&
-            hookData.column.index === 3
-          ) {
-            const val = hookData.cell.text[0];
-            if (val === "Lunas") {
-              doc.setTextColor(22, 163, 74); // hijau
-            } else {
-              doc.setTextColor(234, 88, 12); // oranye
-            }
-          }
-        },
-      });
-
-      startY = doc.lastAutoTable.finalY + 8;
-    });
-
-    // Footer halaman
-    const pageCount = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(7);
-      doc.setTextColor(150, 150, 150);
-      doc.text(
-        `Dicetak: ${new Date().toLocaleString("id-ID")}  |  Halaman ${i} dari ${pageCount}`,
-        14,
-        doc.internal.pageSize.height - 8
-      );
-    }
-
-    doc.save(
-      `BON_PM_${filterTanggal}${filterLine ? "_Line" + filterLine : ""}.pdf`
-    );
   };
 
   return (
@@ -562,12 +398,7 @@ export default function Home() {
               >
                 <option value="">-- Tambah PM --</option>
                 {packingTapes
-                  .filter(
-                    (t) =>
-                      !selectedTapes.find(
-                        (s) => s.material_code === t.material_code
-                      )
-                  )
+                  .filter((t) => !selectedTapes.find((s) => s.material_code === t.material_code))
                   .map((t) => (
                     <option key={t.material_code} value={t.material_code}>
                       {t.nama_pm}
@@ -588,13 +419,8 @@ export default function Home() {
                 <tbody>
                   {nonTapes.length === 0 && selectedTapes.length === 0 ? (
                     <tr>
-                      <td
-                        colSpan={4}
-                        className="text-center py-4 text-gray-400 text-xs"
-                      >
-                        {selectedSku
-                          ? "Memuat data..."
-                          : "Silakan pilih produk terlebih dahulu..."}
+                      <td colSpan={4} className="text-center py-4 text-gray-400 text-xs">
+                        {selectedSku ? "Memuat data..." : "Silakan pilih produk terlebih dahulu..."}
                       </td>
                     </tr>
                   ) : (
@@ -610,9 +436,7 @@ export default function Home() {
                               className="border rounded px-2 py-1 w-16 text-xs"
                               placeholder="0"
                               value={qtyMap[b.material_code] || ""}
-                              onChange={(e) =>
-                                handleQtyChange(b.material_code, e.target.value)
-                              }
+                              onChange={(e) => handleQtyChange(b.material_code, e.target.value)}
                             />
                           </td>
                         </tr>
@@ -624,9 +448,7 @@ export default function Home() {
                             <button
                               onClick={() => handleRemoveTape(t.material_code)}
                               className="text-red-400 hover:text-red-600 font-bold text-xs"
-                            >
-                              ✕
-                            </button>
+                            >✕</button>
                             {t.nama_pm}
                           </td>
                           <td className="px-2 py-2 text-xs">{t.uom}</td>
@@ -636,9 +458,7 @@ export default function Home() {
                               className="border rounded px-2 py-1 w-16 text-xs"
                               placeholder="0"
                               value={t.qty || ""}
-                              onChange={(e) =>
-                                handleTapeQty(t.material_code, e.target.value)
-                              }
+                              onChange={(e) => handleTapeQty(t.material_code, e.target.value)}
                             />
                           </td>
                         </tr>
@@ -669,30 +489,16 @@ export default function Home() {
         <div className="bg-white rounded-xl shadow p-4 md:p-6">
           <div className="flex flex-col gap-2 mb-4 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg md:text-xl font-bold">📊 History BON PM</h2>
-            <div className="flex gap-2 items-center">
-              {/* Tombol Download PDF */}
-              <button
-                onClick={handleDownloadPDF}
-                disabled={history.length === 0}
-                className="bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap"
-              >
-                📄 PDF
-              </button>
-
+            <div className="flex gap-2">
               <select
                 className="flex-1 border rounded-lg px-2 py-2 text-sm"
                 value={filterLine}
                 onChange={(e) => setFilterLine(e.target.value)}
               >
                 <option value="">Semua Line</option>
-                {[...new Set(history.map((r) => r.line))]
-                  .filter(Boolean)
-                  .sort()
-                  .map((l) => (
-                    <option key={l} value={l}>
-                      Line {l}
-                    </option>
-                  ))}
+                {[...new Set(history.map((r) => r.line))].filter(Boolean).sort().map((l) => (
+                  <option key={l} value={l}>Line {l}</option>
+                ))}
               </select>
               <input
                 type="date"
@@ -706,16 +512,12 @@ export default function Home() {
           {loadingHistory ? (
             <p className="text-center text-gray-400 py-4 text-sm">Memuat data...</p>
           ) : history.length === 0 ? (
-            <p className="text-center text-gray-400 py-4 text-sm">
-              Tidak ada data untuk tanggal ini.
-            </p>
+            <p className="text-center text-gray-400 py-4 text-sm">Tidak ada data untuk tanggal ini.</p>
           ) : (
             <div className="space-y-3">
               {Object.entries(
                 history
-                  .filter(
-                    (row) => filterLine === "" || row.line === filterLine
-                  )
+                  .filter((row) => filterLine === "" || row.line === filterLine)
                   .reduce((acc, row) => {
                     const key = `${row.shift}-Line${row.line}-${row.nama_pembuat}`;
                     if (!acc[key]) acc[key] = { ...row, items: [] };
@@ -725,9 +527,7 @@ export default function Home() {
               ).map(([key, group]) => (
                 <div key={key} className="border rounded-lg overflow-hidden">
                   <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
-                    <span>
-                      {group.shift} · Line {group.line} · {group.nama_pembuat}
-                    </span>
+                    <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
                     <span>{group.tanggal}</span>
                   </div>
                   <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">
@@ -745,33 +545,15 @@ export default function Home() {
                     </thead>
                     <tbody>
                       {group.items.map((item, i) => {
-                        const totalKirim = getTotalKirim(
-                          item.no_bon,
-                          item.material_code
-                        );
-                        const sudahLunas =
-                          totalKirim >= Number(item.qty_bon);
-                        const ceklisInfo = isSudahCeklis(
-                          item.no_bon,
-                          item.material_code
-                        );
+                        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+                        const sudahLunas = totalKirim >= Number(item.qty_bon);
+                        const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
                         return (
-                          <tr
-                            key={i}
-                            className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}
-                          >
+                          <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
                             <td className="px-2 py-1">{item.nama_pm}</td>
+                            <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
                             <td className="px-2 py-1">
-                              {item.qty_bon} {item.uom}
-                            </td>
-                            <td className="px-2 py-1">
-                              <span
-                                className={
-                                  sudahLunas
-                                    ? "text-green-600 font-bold"
-                                    : "text-orange-500"
-                                }
-                              >
+                              <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>
                                 {totalKirim}
                               </span>
                             </td>
@@ -785,9 +567,7 @@ export default function Home() {
                             </td>
                             <td className="px-2 py-1">
                               {ceklisInfo ? (
-                                <span className="text-green-600 font-bold text-xs">
-                                  ✅
-                                </span>
+                                <span className="text-green-600 font-bold text-xs">✅</span>
                               ) : (
                                 <button
                                   onClick={() => handleOpenCeklis(item)}
@@ -815,14 +595,11 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-bold mb-1">🚚 Catat Pengiriman</h3>
-            <p className="text-xs text-gray-500 mb-1">
-              No BON: {modalKirim.no_bon}
-            </p>
+            <p className="text-xs text-gray-500 mb-1">No BON: {modalKirim.no_bon}</p>
             <p className="text-sm font-medium mb-1">{modalKirim.nama_pm}</p>
             <p className="text-xs text-gray-500 mb-4">
-              QTY BON: {modalKirim.qty_bon} {modalKirim.uom} · Sudah terkirim:{" "}
-              {getTotalKirim(modalKirim.no_bon, modalKirim.material_code)}{" "}
-              {modalKirim.uom}
+              QTY BON: {modalKirim.qty_bon} {modalKirim.uom} ·
+              Sudah terkirim: {getTotalKirim(modalKirim.no_bon, modalKirim.material_code)} {modalKirim.uom}
             </p>
 
             {/* Riwayat Pengiriman */}
@@ -830,20 +607,13 @@ export default function Home() {
               (r) => r.material_code === modalKirim.material_code
             ).length > 0 && (
               <div className="mb-4 bg-gray-50 rounded-lg p-3">
-                <p className="text-xs font-semibold text-gray-600 mb-2">
-                  Riwayat Pengiriman:
-                </p>
+                <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Pengiriman:</p>
                 <div className="space-y-1">
                   {(riwayatKirim[modalKirim.no_bon] || [])
                     .filter((r) => r.material_code === modalKirim.material_code)
                     .map((r, i) => (
-                      <div
-                        key={i}
-                        className="flex justify-between text-xs text-gray-600"
-                      >
-                        <span>
-                          • {r.qty_kirim} {modalKirim.uom} — {r.nama_pembuat}
-                        </span>
+                      <div key={i} className="flex justify-between text-xs text-gray-600">
+                        <span>• {r.qty_kirim} {modalKirim.uom} — {r.nama_pembuat}</span>
                         <span className="text-gray-400">{r.jam_kirim}</span>
                       </div>
                     ))}
@@ -853,9 +623,7 @@ export default function Home() {
 
             <div className="space-y-3 mb-3">
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Nama Pengirim
-                </label>
+                <label className="block text-sm font-medium mb-1">Nama Pengirim</label>
                 <input
                   className="w-full border rounded-lg px-3 py-2 text-sm"
                   placeholder="Nama lengkap"
@@ -875,9 +643,7 @@ export default function Home() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  QTY Kirim ({modalKirim.uom}) — sisa:{" "}
-                  {Number(modalKirim.qty_bon) -
-                    getTotalKirim(modalKirim.no_bon, modalKirim.material_code)}
+                  QTY Kirim ({modalKirim.uom}) — sisa: {Number(modalKirim.qty_bon) - getTotalKirim(modalKirim.no_bon, modalKirim.material_code)}
                 </label>
                 <input
                   type="number"
@@ -925,9 +691,7 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-bold mb-1">☑️ Ceklis Input Sistem</h3>
-            <p className="text-xs text-gray-500 mb-1">
-              No BON: {modalCeklis.no_bon}
-            </p>
+            <p className="text-xs text-gray-500 mb-1">No BON: {modalCeklis.no_bon}</p>
             <p className="text-sm font-medium mb-4">{modalCeklis.nama_pm}</p>
             <div className="mb-3">
               <label className="block text-sm font-medium mb-1">Password</label>
