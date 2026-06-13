@@ -31,13 +31,14 @@ export default function Home() {
   const [kirimPesan, setKirimPesan] = useState("");
   const [riwayatKirim, setRiwayatKirim] = useState({});
 
-  // State modal ceklis
+  // State modal ceklis per item
   const [modalCeklis, setModalCeklis] = useState(null);
+  // modalCeklis: { no_bon, material_code, nama_pm }
   const [passwordCeklis, setPasswordCeklis] = useState("");
   const [ceklisLoading, setCeklisLoading] = useState(false);
   const [ceklisPesan, setCeklisPesan] = useState("");
   const [statusCeklis, setStatusCeklis] = useState({});
-  // statusCeklis: { [no_bon]: { sudah_ceklis, jam_ceklis } }
+  // statusCeklis: { [no_bon]: [ {material_code, jam_ceklis} ] }
 
   useEffect(() => {
     fetch("/api/produk")
@@ -79,8 +80,13 @@ export default function Home() {
     const data = await res.json();
     setStatusCeklis((prev) => ({
       ...prev,
-      [no_bon]: { sudah_ceklis: data.sudah_ceklis, jam_ceklis: data.jam_ceklis },
+      [no_bon]: data.data || [],
     }));
+  };
+
+  const isSudahCeklis = (no_bon, material_code) => {
+    const list = statusCeklis[no_bon] || [];
+    return list.find((c) => c.material_code === material_code);
   };
 
   const handleProdukChange = (e) => {
@@ -241,11 +247,15 @@ export default function Home() {
     }
   };
 
-  const handleOpenCeklis = (no_bon) => {
-    setModalCeklis({ no_bon });
+  const handleOpenCeklis = (item) => {
+    setModalCeklis({
+      no_bon: item.no_bon,
+      material_code: item.material_code,
+      nama_pm: item.nama_pm,
+    });
     setPasswordCeklis("");
     setCeklisPesan("");
-    fetchStatusCeklis(no_bon);
+    fetchStatusCeklis(item.no_bon);
   };
 
   const handleCeklis = async () => {
@@ -260,6 +270,7 @@ export default function Home() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         no_bon: modalCeklis.no_bon,
+        material_code: modalCeklis.material_code,
         password: passwordCeklis,
       }),
     });
@@ -513,75 +524,66 @@ export default function Home() {
                     acc[key].items.push(row);
                     return acc;
                   }, {})
-              ).map(([key, group]) => {
-                const noBon = group.items[0]?.no_bon;
-                const ceklisInfo = statusCeklis[noBon];
-                return (
-                  <div key={key} className="border rounded-lg overflow-hidden">
-                    <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
-                      <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
-                      <span>{group.tanggal}</span>
-                    </div>
-                    <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">
-                      {group.nama_produk}
-                    </div>
-                    <table className="w-full text-xs">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="text-left px-3 py-1">Nama PM</th>
-                          <th className="text-left px-3 py-1">BON</th>
-                          <th className="text-left px-3 py-1">UOM</th>
-                          <th className="text-left px-3 py-1">Kirim</th>
-                          <th className="text-left px-3 py-1"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.items.map((item, i) => {
-                          const totalKirim = getTotalKirim(item.no_bon, item.material_code);
-                          const sudahLunas = totalKirim >= Number(item.qty_bon);
-                          return (
-                            <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
-                              <td className="px-3 py-1">{item.nama_pm}</td>
-                              <td className="px-3 py-1">{item.qty_bon}</td>
-                              <td className="px-3 py-1">{item.uom}</td>
-                              <td className="px-3 py-1">
-                                <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>
-                                  {totalKirim}
-                                </span>
-                              </td>
-                              <td className="px-3 py-1">
-                                <button
-                                  onClick={() => handleOpenKirim(item, group)}
-                                  className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
-                                >
-                                  🚚
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-
-                    {/* Ceklis Input Sistem */}
-                    <div className="px-3 py-2 bg-gray-50 border-t">
-                      {ceklisInfo?.sudah_ceklis ? (
-                        <div className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
-                          ✅ <span className="font-semibold">Sudah diinput ke sistem</span>
-                          <span className="text-gray-400 ml-2">{ceklisInfo.jam_ceklis}</span>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => handleOpenCeklis(noBon)}
-                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-lg"
-                        >
-                          ☑️ Tandai Sudah Input Sistem
-                        </button>
-                      )}
-                    </div>
+              ).map(([key, group]) => (
+                <div key={key} className="border rounded-lg overflow-hidden">
+                  <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
+                    <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
+                    <span>{group.tanggal}</span>
                   </div>
-                );
-              })}
+                  <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">
+                    {group.nama_produk}
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="text-left px-2 py-1">Nama PM</th>
+                        <th className="text-left px-2 py-1">BON</th>
+                        <th className="text-left px-2 py-1">Krm</th>
+                        <th className="text-left px-2 py-1">🚚</th>
+                        <th className="text-left px-2 py-1">☑️</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.items.map((item, i) => {
+                        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+                        const sudahLunas = totalKirim >= Number(item.qty_bon);
+                        const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
+                        return (
+                          <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
+                            <td className="px-2 py-1">{item.nama_pm}</td>
+                            <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
+                            <td className="px-2 py-1">
+                              <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>
+                                {totalKirim}
+                              </span>
+                            </td>
+                            <td className="px-2 py-1">
+                              <button
+                                onClick={() => handleOpenKirim(item, group)}
+                                className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg"
+                              >
+                                🚚
+                              </button>
+                            </td>
+                            <td className="px-2 py-1">
+                              {ceklisInfo ? (
+                                <span className="text-green-600 font-bold text-xs">✅</span>
+                              ) : (
+                                <button
+                                  onClick={() => handleOpenCeklis(item)}
+                                  className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg"
+                                >
+                                  ☑️
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -684,12 +686,13 @@ export default function Home() {
         </div>
       )}
 
-      {/* Modal Ceklis Input Sistem */}
+      {/* Modal Ceklis per Item */}
       {modalCeklis && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-1">☑️ Tandai Input Sistem</h3>
-            <p className="text-xs text-gray-500 mb-4">No BON: {modalCeklis.no_bon}</p>
+            <h3 className="text-lg font-bold mb-1">☑️ Ceklis Input Sistem</h3>
+            <p className="text-xs text-gray-500 mb-1">No BON: {modalCeklis.no_bon}</p>
+            <p className="text-sm font-medium mb-4">{modalCeklis.nama_pm}</p>
             <div className="mb-3">
               <label className="block text-sm font-medium mb-1">Password</label>
               <input

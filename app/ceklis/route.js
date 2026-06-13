@@ -8,19 +8,21 @@ export async function GET(request) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Ceklis_BON!A2:C10000",
+      range: "Ceklis_BON!A2:D10000",
     });
 
     const rows = response.data.values || [];
-    const found = rows.find((row) => row[0] === no_bon);
+    const filtered = rows
+      .filter((row) => row[0] === no_bon)
+      .map((row) => ({
+        no_bon: row[0] || "",
+        material_code: row[1] || "",
+        jam_ceklis: row[2] || "",
+        status: row[3] || "",
+      }));
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        sudah_ceklis: !!found,
-        jam_ceklis: found?.[1] || "",
-        nama_ceklis: found?.[2] || "",
-      }),
+      JSON.stringify({ success: true, data: filtered }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {
@@ -35,7 +37,7 @@ export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { no_bon, password } = body;
+    const { no_bon, material_code, password } = body;
 
     // Cek password di sheet Users kolom B
     const usersRes = await sheets.spreadsheets.values.get({
@@ -50,16 +52,18 @@ export async function POST(request) {
       );
     }
 
-    // Cek apakah sudah pernah diceklis
+    // Cek apakah item ini sudah diceklis
     const ceklisRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Ceklis_BON!A2:C10000",
+      range: "Ceklis_BON!A2:D10000",
     });
     const rows = ceklisRes.data.values || [];
-    const sudahAda = rows.find((row) => row[0] === no_bon);
+    const sudahAda = rows.find(
+      (row) => row[0] === no_bon && row[1] === material_code
+    );
     if (sudahAda) {
       return new Response(
-        JSON.stringify({ success: false, error: "BON ini sudah diceklis sebelumnya!" }),
+        JSON.stringify({ success: false, error: "Item ini sudah diceklis!" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -68,10 +72,10 @@ export async function POST(request) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
-      range: "Ceklis_BON!A:C",
+      range: "Ceklis_BON!A:D",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[no_bon, jam_ceklis, "✓"]],
+        values: [[no_bon, material_code, jam_ceklis, "✓"]],
       },
     });
 
