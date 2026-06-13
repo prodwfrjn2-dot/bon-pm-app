@@ -21,11 +21,13 @@ export default function Home() {
   );
   const [filterLine, setFilterLine] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const [modalVerif, setModalVerif] = useState(null);
-  const [loginUsername, setLoginUsername] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [verifLoading, setVerifLoading] = useState(false);
-  const [verifPesan, setVerifPesan] = useState("");
+  const [modalKirim, setModalKirim] = useState(null);
+  // modalKirim: { no_bon, material_code, nama_pm, nama_pembuat, qty_bon, uom }
+  const [qtyKirim, setQtyKirim] = useState("");
+  const [kirimLoading, setKirimLoading] = useState(false);
+  const [kirimPesan, setKirimPesan] = useState("");
+  const [riwayatKirim, setRiwayatKirim] = useState({});
+  // riwayatKirim: { [no_bon]: [ {material_code, qty_kirim, jam_kirim, nama_pembuat} ] }
 
   useEffect(() => {
     fetch("/api/produk")
@@ -54,6 +56,12 @@ export default function Home() {
     const data = await res.json();
     setHistory(data.data || []);
     setLoadingHistory(false);
+  };
+
+  const fetchRiwayatKirim = async (no_bon) => {
+    const res = await fetch(`/api/pengiriman?no_bon=${no_bon}`);
+    const data = await res.json();
+    setRiwayatKirim((prev) => ({ ...prev, [no_bon]: data.data || [] }));
   };
 
   const handleProdukChange = (e) => {
@@ -157,37 +165,54 @@ export default function Home() {
     }
   };
 
-  const handleVerif = async () => {
-    if (!loginUsername || !loginPassword) {
-      setVerifPesan("⚠️ Isi username dan password!");
+  const handleOpenKirim = (item, group) => {
+    setModalKirim({
+      no_bon: item.no_bon,
+      material_code: item.material_code,
+      nama_pm: item.nama_pm,
+      nama_pembuat: group.nama_pembuat,
+      qty_bon: item.qty_bon,
+      uom: item.uom,
+    });
+    setQtyKirim("");
+    setKirimPesan("");
+    fetchRiwayatKirim(item.no_bon);
+  };
+
+  const handleKirim = async () => {
+    if (!qtyKirim || Number(qtyKirim) <= 0) {
+      setKirimPesan("⚠️ Masukkan qty yang valid!");
       return;
     }
-    setVerifLoading(true);
-    setVerifPesan("");
-    const res = await fetch("/api/verify", {
+    setKirimLoading(true);
+    setKirimPesan("");
+    const res = await fetch("/api/pengiriman", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        username: loginUsername,
-        password: loginPassword,
-        tipe: modalVerif.tipe,
-        no_bon: modalVerif.no_bon,
+        no_bon: modalKirim.no_bon,
+        material_code: modalKirim.material_code,
+        nama_pm: modalKirim.nama_pm,
+        qty_kirim: Number(qtyKirim),
+        nama_pembuat: modalKirim.nama_pembuat,
       }),
     });
     const data = await res.json();
-    setVerifLoading(false);
+    setKirimLoading(false);
     if (data.success) {
-      setVerifPesan(`✅ Terverifikasi oleh ${data.nama}`);
-      fetchHistory(filterTanggal);
-      setTimeout(() => {
-        setModalVerif(null);
-        setLoginUsername("");
-        setLoginPassword("");
-        setVerifPesan("");
-      }, 1500);
+      setKirimPesan(`✅ Terkirim ${qtyKirim} ${modalKirim.uom} pada ${data.jam_kirim}`);
+      setQtyKirim("");
+      fetchRiwayatKirim(modalKirim.no_bon);
     } else {
-      setVerifPesan("❌ " + data.error);
+      setKirimPesan("❌ " + data.error);
     }
+  };
+
+  const getTotalKirim = (no_bon, material_code) => {
+    const riwayat = riwayatKirim[no_bon] || [];
+    return riwayat
+      .filter((r) => r.material_code === material_code)
+      .reduce((sum, r) => sum + Number(r.qty_kirim), 0);
   };
 
   return (
@@ -431,57 +456,39 @@ export default function Home() {
                     <thead className="bg-gray-100">
                       <tr>
                         <th className="text-left px-3 py-1">Nama PM</th>
-                        <th className="text-left px-3 py-1">QTY</th>
+                        <th className="text-left px-3 py-1">QTY BON</th>
                         <th className="text-left px-3 py-1">UOM</th>
+                        <th className="text-left px-3 py-1">Terkirim</th>
+                        <th className="text-left px-3 py-1"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {group.items.map((item, i) => (
-                        <tr key={i} className="border-t">
-                          <td className="px-3 py-1">{item.nama_pm}</td>
-                          <td className="px-3 py-1">{item.qty_bon}</td>
-                          <td className="px-3 py-1">{item.uom}</td>
-                        </tr>
-                      ))}
+                      {group.items.map((item, i) => {
+                        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+                        const sudahLunas = totalKirim >= Number(item.qty_bon);
+                        return (
+                          <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
+                            <td className="px-3 py-1">{item.nama_pm}</td>
+                            <td className="px-3 py-1">{item.qty_bon}</td>
+                            <td className="px-3 py-1">{item.uom}</td>
+                            <td className="px-3 py-1">
+                              <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>
+                                {totalKirim}
+                              </span>
+                            </td>
+                            <td className="px-3 py-1">
+                              <button
+                                onClick={() => handleOpenKirim(item, group)}
+                                className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg"
+                              >
+                                🚚 Kirim
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
-
-                  {/* Tombol Verifikasi */}
-                  <div className="px-3 py-2 bg-gray-50 border-t flex gap-2 flex-wrap">
-                    <div className="flex-1 min-w-[140px]">
-                      {group.items[0]?.verif_fisik_by ? (
-                        <div className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
-                          ✅ <span className="font-semibold">Fisik:</span> {group.items[0].verif_fisik_by}
-                          <br />
-                          <span className="text-gray-400">{group.items[0].verif_fisik_at}</span>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setModalVerif({ no_bon: group.items[0].no_bon, tipe: "fisik" })}
-                          className="w-full bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-2 rounded-lg"
-                        >
-                          ✅ Verif Penerimaan Fisik
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-[140px]">
-                      {group.items[0]?.verif_sap_by ? (
-                        <div className="text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
-                          🖥️ <span className="font-semibold">SAP:</span> {group.items[0].verif_sap_by}
-                          <br />
-                          <span className="text-gray-400">{group.items[0].verif_sap_at}</span>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setModalVerif({ no_bon: group.items[0].no_bon, tipe: "sap" })}
-                          className="w-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2 rounded-lg"
-                        >
-                          🖥️ Verif Input SAP
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
                 </div>
               ))}
             </div>
@@ -490,58 +497,73 @@ export default function Home() {
 
       </div>
 
-      {/* Modal Verifikasi */}
-      {modalVerif && (
+      {/* Modal Pengiriman */}
+      {modalKirim && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-1">
-              {modalVerif.tipe === "fisik" ? "✅ Verifikasi Penerimaan Fisik" : "🖥️ Verifikasi Input SAP"}
-            </h3>
-            <p className="text-xs text-gray-500 mb-4">No BON: {modalVerif.no_bon}</p>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">Username</label>
-                <input
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  placeholder="Username"
-                  value={loginUsername}
-                  onChange={(e) => setLoginUsername(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Password</label>
-                <input
-                  type="password"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  placeholder="Password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                />
-              </div>
-            </div>
-            {verifPesan && (
-              <div className="mt-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">
-                {verifPesan}
+            <h3 className="text-lg font-bold mb-1">🚚 Catat Pengiriman</h3>
+            <p className="text-xs text-gray-500 mb-1">No BON: {modalKirim.no_bon}</p>
+            <p className="text-sm font-medium mb-1">{modalKirim.nama_pm}</p>
+            <p className="text-xs text-gray-500 mb-4">
+              QTY BON: {modalKirim.qty_bon} {modalKirim.uom} · 
+              Sudah terkirim: {getTotalKirim(modalKirim.no_bon, modalKirim.material_code)} {modalKirim.uom}
+            </p>
+
+            {/* Riwayat Pengiriman */}
+            {(riwayatKirim[modalKirim.no_bon] || []).filter(
+              (r) => r.material_code === modalKirim.material_code
+            ).length > 0 && (
+              <div className="mb-4 bg-gray-50 rounded-lg p-3">
+                <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Pengiriman:</p>
+                <div className="space-y-1">
+                  {(riwayatKirim[modalKirim.no_bon] || [])
+                    .filter((r) => r.material_code === modalKirim.material_code)
+                    .map((r, i) => (
+                      <div key={i} className="flex justify-between text-xs text-gray-600">
+                        <span>• {r.qty_kirim} {modalKirim.uom}</span>
+                        <span className="text-gray-400">{r.jam_kirim}</span>
+                      </div>
+                    ))}
+                </div>
               </div>
             )}
-            <div className="flex gap-2 mt-4">
+
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">
+                QTY yang dikirim sekarang ({modalKirim.uom})
+              </label>
+              <input
+                type="number"
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                placeholder="Masukkan qty"
+                value={qtyKirim}
+                onChange={(e) => setQtyKirim(e.target.value)}
+              />
+            </div>
+
+            {kirimPesan && (
+              <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">
+                {kirimPesan}
+              </div>
+            )}
+
+            <div className="flex gap-2">
               <button
                 onClick={() => {
-                  setModalVerif(null);
-                  setLoginUsername("");
-                  setLoginPassword("");
-                  setVerifPesan("");
+                  setModalKirim(null);
+                  setQtyKirim("");
+                  setKirimPesan("");
                 }}
                 className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
               >
-                Batal
+                Tutup
               </button>
               <button
-                onClick={handleVerif}
-                disabled={verifLoading}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl py-2 text-sm"
+                onClick={handleKirim}
+                disabled={kirimLoading}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl py-2 text-sm"
               >
-                {verifLoading ? "Memverifikasi..." : "Verifikasi"}
+                {kirimLoading ? "Menyimpan..." : "🚚 Catat Kirim"}
               </button>
             </div>
           </div>

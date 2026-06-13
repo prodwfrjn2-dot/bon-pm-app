@@ -8,7 +8,7 @@ export async function GET(request) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "BON_PM!A2:Q10000",
+      range: "BON_PM!A2:K10000",
     });
 
     const rows = response.data.values || [];
@@ -33,10 +33,6 @@ export async function GET(request) {
         nama_pm: row[8] || "",
         qty_bon: row[9] || "",
         uom: row[10] || "",
-        verif_fisik_by: row[13] || "",
-        verif_fisik_at: row[14] || "",
-        verif_sap_by: row[15] || "",
-        verif_sap_at: row[16] || "",
       }));
 
     return new Response(JSON.stringify({ success: true, data: filtered }), {
@@ -44,9 +40,9 @@ export async function GET(request) {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error) {
-    return new Response(JSON.stringify({ success: false, error: error.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ success: false, error: error.message }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
   }
 }
