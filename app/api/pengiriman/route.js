@@ -83,7 +83,8 @@ export async function POST(request) {
       );
     }
 
-    const jam_kirim = new Date().toLocaleString("id-ID");
+    // Generate jam WIB
+    const jam_kirim = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
