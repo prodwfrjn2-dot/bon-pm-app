@@ -39,11 +39,11 @@ export default function Home() {
 
   const [modalEdit, setModalEdit] = useState(null);
   const [qtyEdit, setQtyEdit] = useState("");
+  const [namaEditor, setNamaEditor] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editPesan, setEditPesan] = useState("");
   const [riwayatEdit, setRiwayatEdit] = useState({});
 
-  // Fetch produk saat divisi berubah
   useEffect(() => {
     if (!divisi) {
       setProdukList([]);
@@ -298,11 +298,13 @@ export default function Home() {
       uom: item.uom,
     });
     setQtyEdit(item.qty_bon);
+    setNamaEditor("");
     setEditPesan("");
     fetchRiwayatEdit(item.no_bon);
   };
 
   const handleEdit = async () => {
+    if (!namaEditor.trim()) { setEditPesan("⚠️ Nama editor wajib diisi!"); return; }
     if (!qtyEdit || Number(qtyEdit) < 0) { setEditPesan("⚠️ Masukkan qty yang valid!"); return; }
     if (Number(qtyEdit) === Number(modalEdit.qty_bon)) { setEditPesan("⚠️ Qty sama, tidak ada perubahan!"); return; }
     setEditLoading(true); setEditPesan("");
@@ -315,6 +317,7 @@ export default function Home() {
         nama_pm: modalEdit.nama_pm,
         qty_lama: modalEdit.qty_bon,
         qty_baru: Number(qtyEdit),
+        nama_editor: namaEditor,
       }),
     });
     const data = await res.json();
@@ -323,7 +326,7 @@ export default function Home() {
       setEditPesan(`✅ Qty diubah dari ${modalEdit.qty_bon} → ${qtyEdit}`);
       fetchRiwayatEdit(modalEdit.no_bon);
       fetchHistory(filterTanggal);
-      setTimeout(() => { setModalEdit(null); setQtyEdit(""); setEditPesan(""); }, 1500);
+      setTimeout(() => { setModalEdit(null); setQtyEdit(""); setNamaEditor(""); setEditPesan(""); }, 1500);
     } else {
       setEditPesan("❌ " + data.error);
     }
@@ -408,9 +411,7 @@ export default function Home() {
           <h1 className="text-xl md:text-2xl font-bold mb-4 flex items-center gap-2">
             📋 BON PM WAFER MI JAYANTI 2
           </h1>
-
           <div className="flex flex-col gap-3 mb-4">
-            {/* Divisi */}
             <div>
               <label className="block text-sm font-medium mb-1">Divisi</label>
               <select className="w-full border rounded-lg px-3 py-2 text-sm" value={divisi} onChange={handleDivisiChange}>
@@ -419,7 +420,6 @@ export default function Home() {
                 <option value="Wafer Stick">Wafer Stick</option>
               </select>
             </div>
-
             <div>
               <label className="block text-sm font-medium mb-1">Nama Pembuat</label>
               <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaPembuat} onChange={(e) => setNamaPembuat(e.target.value)} />
@@ -440,7 +440,6 @@ export default function Home() {
               </div>
             </div>
           </div>
-
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium mb-1">Tujuan</label>
@@ -455,7 +454,6 @@ export default function Home() {
               <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opsional" value={keterangan} onChange={(e) => setKeterangan(e.target.value)} />
             </div>
           </div>
-
           <div className="mb-4">
             <label className="block text-sm font-medium mb-1">Pilih Produk</label>
             <select className="w-full border rounded-lg px-3 py-2 text-sm" value={selectedSku} onChange={handleProdukChange} disabled={!divisi}>
@@ -463,7 +461,6 @@ export default function Home() {
               {produkList.map((p) => (<option key={p.sku} value={p.sku}>{p.sku} - {p.nama}</option>))}
             </select>
           </div>
-
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2">Daftar Bahan PM (Otomatis dari BOM)</label>
             {packingTapes.length > 0 && (
@@ -514,7 +511,6 @@ export default function Home() {
               </table>
             </div>
           </div>
-
           {pesan && <div className="mb-3 p-3 rounded-lg bg-blue-50 text-blue-800 font-medium text-sm">{pesan}</div>}
           <button onClick={handleSubmit} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-base">
             {loading ? "Menyimpan..." : "💾 Simpan Nota BON PM"}
@@ -617,26 +613,35 @@ export default function Home() {
             <h3 className="text-lg font-bold mb-1">✏️ Edit QTY BON</h3>
             <p className="text-xs text-gray-500 mb-1">No BON: {modalEdit.no_bon}</p>
             <p className="text-sm font-medium mb-4">{modalEdit.nama_pm}</p>
+
             {(riwayatEdit[modalEdit.no_bon] || []).filter((r) => r.nama_pm === modalEdit.nama_pm).length > 0 && (
               <div className="mb-4 bg-gray-50 rounded-lg p-3">
                 <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Perubahan:</p>
                 <div className="space-y-1">
                   {(riwayatEdit[modalEdit.no_bon] || []).filter((r) => r.nama_pm === modalEdit.nama_pm).map((r, i) => (
                     <div key={i} className="flex justify-between text-xs text-gray-600">
-                      <span>• {r.qty_lama} → {r.qty_baru} {modalEdit.uom}</span>
+                      <span>• {r.qty_lama} → {r.qty_baru} {modalEdit.uom} — {r.nama_editor || "-"}</span>
                       <span className="text-gray-400">{r.waktu}</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            <div className="mb-3">
-              <label className="block text-sm font-medium mb-1">QTY Baru ({modalEdit.uom}) — saat ini: {modalEdit.qty_bon}</label>
-              <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan qty baru" value={qtyEdit} onChange={(e) => setQtyEdit(e.target.value)} />
+
+            <div className="space-y-3 mb-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama Editor</label>
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaEditor} onChange={(e) => setNamaEditor(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">QTY Baru ({modalEdit.uom}) — saat ini: {modalEdit.qty_bon}</label>
+                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan qty baru" value={qtyEdit} onChange={(e) => setQtyEdit(e.target.value)} />
+              </div>
             </div>
+
             {editPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{editPesan}</div>}
             <div className="flex gap-2">
-              <button onClick={() => { setModalEdit(null); setQtyEdit(""); setEditPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
+              <button onClick={() => { setModalEdit(null); setQtyEdit(""); setNamaEditor(""); setEditPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
               <button onClick={handleEdit} disabled={editLoading} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl py-2 text-sm">
                 {editLoading ? "Menyimpan..." : "✏️ Simpan Perubahan"}
               </button>

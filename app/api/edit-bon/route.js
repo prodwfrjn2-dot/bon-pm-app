@@ -4,27 +4,16 @@ export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { no_bon, material_code, nama_pm, qty_lama, qty_baru } = body;
+    const { no_bon, material_code, nama_pm, qty_lama, qty_baru, nama_editor } = body;
 
-    // Paksa mengambil waktu aktual WIB (Asia/Jakarta)
-    const waktu = new Date().toLocaleString("id-ID", {
-      timeZone: "Asia/Jakarta",
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
-    }).replace(/\./g, ':'); // Mengubah titik pemisah jam menjadi titik dua (:) supaya rapi
+    const waktu = new Date().toLocaleString("id-ID");
 
-    // Simpan histori perubahan ke sheet Edit_BON
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
-      range: "Edit_BON!A:F",
+      range: "Edit_BON!A:G",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[no_bon, "EDIT_QTY", nama_pm, qty_lama, qty_baru, waktu]],
+        values: [[no_bon, "EDIT_QTY", nama_pm, qty_lama, qty_baru, waktu, nama_editor]],
       },
     });
 
@@ -41,7 +30,6 @@ export async function POST(request) {
     rows.forEach((row, i) => {
       if (row[0] === no_bon && row[7] === material_code) {
         const rowNum = startRow + i;
-        // Kolom J = index 9 = qty_bon
         updates.push({
           range: `BON_PM!J${rowNum}`,
           values: [[qty_baru]],
@@ -84,7 +72,7 @@ export async function GET(request) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Edit_BON!A2:F10000",
+      range: "Edit_BON!A2:G10000",
     });
 
     const rows = response.data.values || [];
@@ -97,6 +85,7 @@ export async function GET(request) {
         qty_lama: row[3] || "",
         qty_baru: row[4] || "",
         waktu: row[5] || "",
+        nama_editor: row[6] || "",
       }));
 
     return new Response(
