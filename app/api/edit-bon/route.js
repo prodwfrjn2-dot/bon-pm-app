@@ -6,8 +6,19 @@ export async function POST(request) {
     const body = await request.json();
     const { no_bon, material_code, nama_pm, qty_lama, qty_baru } = body;
 
+    // Paksa mengambil waktu aktual WIB (Asia/Jakarta)
+    const waktu = new Date().toLocaleString("id-ID", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).replace(/\./g, ':'); // Mengubah titik pemisah jam menjadi titik dua (:) supaya rapi
+
     // Simpan histori perubahan ke sheet Edit_BON
-    const waktu = new Date().toLocaleString("id-ID");
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: "Edit_BON!A:F",
