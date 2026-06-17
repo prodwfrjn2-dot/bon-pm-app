@@ -36,6 +36,14 @@ export default function Home() {
   const [ceklisPesan, setCeklisPesan] = useState("");
   const [statusCeklis, setStatusCeklis] = useState({});
 
+  // State modal edit
+  const [modalEdit, setModalEdit] = useState(null);
+  // modalEdit: { no_bon, material_code, nama_pm, qty_bon, uom }
+  const [qtyEdit, setQtyEdit] = useState("");
+  const [editLoading, setEditLoading] = useState(false);
+  const [editPesan, setEditPesan] = useState("");
+  const [riwayatEdit, setRiwayatEdit] = useState({});
+
   useEffect(() => {
     fetch("/api/produk")
       .then((r) => r.json())
@@ -64,8 +72,6 @@ export default function Home() {
     const rows = data.data || [];
     setHistory(rows);
     setLoadingHistory(false);
-
-    // Auto-load riwayat kirim & status ceklis untuk semua no_bon unik
     const noBonList = [...new Set(rows.map((r) => r.no_bon).filter(Boolean))];
     noBonList.forEach((no_bon) => {
       fetchRiwayatKirim(no_bon);
@@ -83,6 +89,12 @@ export default function Home() {
     const res = await fetch(`/api/ceklis?no_bon=${no_bon}`);
     const data = await res.json();
     setStatusCeklis((prev) => ({ ...prev, [no_bon]: data.data || [] }));
+  };
+
+  const fetchRiwayatEdit = async (no_bon) => {
+    const res = await fetch(`/api/edit-bon?no_bon=${no_bon}`);
+    const data = await res.json();
+    setRiwayatEdit((prev) => ({ ...prev, [no_bon]: data.data || [] }));
   };
 
   const isSudahCeklis = (no_bon, material_code) => {
@@ -160,8 +172,7 @@ export default function Home() {
         uom: t.uom,
       })),
     ];
-    setLoading(true);
-    setPesan("");
+    setLoading(true); setPesan("");
     const res = await fetch("/api/bon-pm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -258,6 +269,50 @@ export default function Home() {
     }
   };
 
+  const handleOpenEdit = (item) => {
+    setModalEdit({
+      no_bon: item.no_bon,
+      material_code: item.material_code,
+      nama_pm: item.nama_pm,
+      qty_bon: item.qty_bon,
+      uom: item.uom,
+    });
+    setQtyEdit(item.qty_bon);
+    setEditPesan("");
+    fetchRiwayatEdit(item.no_bon);
+  };
+
+  const handleEdit = async () => {
+    if (!qtyEdit || Number(qtyEdit) < 0) { setEditPesan("⚠️ Masukkan qty yang valid!"); return; }
+    if (Number(qtyEdit) === Number(modalEdit.qty_bon)) { setEditPesan("⚠️ Qty sama, tidak ada perubahan!"); return; }
+    setEditLoading(true); setEditPesan("");
+    const res = await fetch("/api/edit-bon", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        no_bon: modalEdit.no_bon,
+        material_code: modalEdit.material_code,
+        nama_pm: modalEdit.nama_pm,
+        qty_lama: modalEdit.qty_bon,
+        qty_baru: Number(qtyEdit),
+      }),
+    });
+    const data = await res.json();
+    setEditLoading(false);
+    if (data.success) {
+      setEditPesan(`✅ Qty diubah dari ${modalEdit.qty_bon} → ${qtyEdit}`);
+      fetchRiwayatEdit(modalEdit.no_bon);
+      fetchHistory(filterTanggal);
+      setTimeout(() => {
+        setModalEdit(null);
+        setQtyEdit("");
+        setEditPesan("");
+      }, 1500);
+    } else {
+      setEditPesan("❌ " + data.error);
+    }
+  };
+
   const handleDownloadPDF = () => {
     const grouped = history
       .filter((row) => filterLine === "" || row.line === filterLine)
@@ -301,12 +356,8 @@ export default function Home() {
           <div class="produk">${group.nama_produk}</div>
           <table>
             <thead><tr>
-              <th>Nama PM</th>
-              <th>QTY BON</th>
-              <th>UOM</th>
-              <th>Total Kirim</th>
-              <th>Status Kirim</th>
-              <th>Input Sistem</th>
+              <th>Nama PM</th><th>QTY BON</th><th>UOM</th>
+              <th>Total Kirim</th><th>Status Kirim</th><th>Input Sistem</th>
             </tr></thead>
             <tbody>
       `;
@@ -327,9 +378,7 @@ export default function Home() {
       });
       html += `</tbody></table></div>`;
     });
-
     html += `</body></html>`;
-
     const win = window.open("", "_blank");
     win.document.write(html);
     win.document.close();
@@ -487,6 +536,7 @@ export default function Home() {
                         <th className="text-left px-2 py-1">Nama PM</th>
                         <th className="text-left px-2 py-1">BON</th>
                         <th className="text-left px-2 py-1">Krm</th>
+                        <th className="text-left px-2 py-1">✏️</th>
                         <th className="text-left px-2 py-1">🚚</th>
                         <th className="text-left px-2 py-1">☑️</th>
                       </tr>
@@ -502,6 +552,9 @@ export default function Home() {
                             <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
                             <td className="px-2 py-1">
                               <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
+                            </td>
+                            <td className="px-2 py-1">
+                              <button onClick={() => handleOpenEdit(item)} className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold px-2 py-1 rounded-lg">✏️</button>
                             </td>
                             <td className="px-2 py-1">
                               <button onClick={() => handleOpenKirim(item, group)} className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg">🚚</button>
@@ -525,6 +578,56 @@ export default function Home() {
         </div>
 
       </div>
+
+      {/* Modal Edit QTY */}
+      {modalEdit && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-1">✏️ Edit QTY BON</h3>
+            <p className="text-xs text-gray-500 mb-1">No BON: {modalEdit.no_bon}</p>
+            <p className="text-sm font-medium mb-4">{modalEdit.nama_pm}</p>
+
+            {/* Riwayat Edit */}
+            {(riwayatEdit[modalEdit.no_bon] || []).filter((r) => r.nama_pm === modalEdit.nama_pm).length > 0 && (
+              <div className="mb-4 bg-gray-50 rounded-lg p-3">
+                <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Perubahan:</p>
+                <div className="space-y-1">
+                  {(riwayatEdit[modalEdit.no_bon] || [])
+                    .filter((r) => r.nama_pm === modalEdit.nama_pm)
+                    .map((r, i) => (
+                      <div key={i} className="flex justify-between text-xs text-gray-600">
+                        <span>• {r.qty_lama} → {r.qty_baru} {modalEdit.uom}</span>
+                        <span className="text-gray-400">{r.waktu}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">
+                QTY Baru ({modalEdit.uom}) — saat ini: {modalEdit.qty_bon}
+              </label>
+              <input
+                type="number"
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                placeholder="Masukkan qty baru"
+                value={qtyEdit}
+                onChange={(e) => setQtyEdit(e.target.value)}
+              />
+            </div>
+
+            {editPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{editPesan}</div>}
+
+            <div className="flex gap-2">
+              <button onClick={() => { setModalEdit(null); setQtyEdit(""); setEditPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
+              <button onClick={handleEdit} disabled={editLoading} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl py-2 text-sm">
+                {editLoading ? "Menyimpan..." : "✏️ Simpan Perubahan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Pengiriman */}
       {modalKirim && (
