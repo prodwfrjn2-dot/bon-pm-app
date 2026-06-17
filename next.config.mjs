@@ -5,3 +5,11 @@ const nextConfig = {
 };
 
 export default nextConfig;
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  env: {
+    TZ: 'Asia/Jakarta',
+  },
+}
+
+module.exports = nextConfig
