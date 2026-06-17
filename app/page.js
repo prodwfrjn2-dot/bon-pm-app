@@ -22,7 +22,6 @@ export default function Home() {
   const [filterLine, setFilterLine] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // State modal kirim
   const [modalKirim, setModalKirim] = useState(null);
   const [qtyKirim, setQtyKirim] = useState("");
   const [namaKirim, setNamaKirim] = useState("");
@@ -31,14 +30,11 @@ export default function Home() {
   const [kirimPesan, setKirimPesan] = useState("");
   const [riwayatKirim, setRiwayatKirim] = useState({});
 
-  // State modal ceklis per item
   const [modalCeklis, setModalCeklis] = useState(null);
-  // modalCeklis: { no_bon, material_code, nama_pm }
   const [passwordCeklis, setPasswordCeklis] = useState("");
   const [ceklisLoading, setCeklisLoading] = useState(false);
   const [ceklisPesan, setCeklisPesan] = useState("");
   const [statusCeklis, setStatusCeklis] = useState({});
-  // statusCeklis: { [no_bon]: [ {material_code, jam_ceklis} ] }
 
   useEffect(() => {
     fetch("/api/produk")
@@ -65,8 +61,16 @@ export default function Home() {
     setLoadingHistory(true);
     const res = await fetch(`/api/history?tanggal=${tanggal}`);
     const data = await res.json();
-    setHistory(data.data || []);
+    const rows = data.data || [];
+    setHistory(rows);
     setLoadingHistory(false);
+
+    // Auto-load riwayat kirim & status ceklis untuk semua no_bon unik
+    const noBonList = [...new Set(rows.map((r) => r.no_bon).filter(Boolean))];
+    noBonList.forEach((no_bon) => {
+      fetchRiwayatKirim(no_bon);
+      fetchStatusCeklis(no_bon);
+    });
   };
 
   const fetchRiwayatKirim = async (no_bon) => {
@@ -78,15 +82,19 @@ export default function Home() {
   const fetchStatusCeklis = async (no_bon) => {
     const res = await fetch(`/api/ceklis?no_bon=${no_bon}`);
     const data = await res.json();
-    setStatusCeklis((prev) => ({
-      ...prev,
-      [no_bon]: data.data || [],
-    }));
+    setStatusCeklis((prev) => ({ ...prev, [no_bon]: data.data || [] }));
   };
 
   const isSudahCeklis = (no_bon, material_code) => {
     const list = statusCeklis[no_bon] || [];
     return list.find((c) => c.material_code === material_code);
+  };
+
+  const getTotalKirim = (no_bon, material_code) => {
+    const riwayat = riwayatKirim[no_bon] || [];
+    return riwayat
+      .filter((r) => r.material_code === material_code)
+      .reduce((sum, r) => sum + Number(r.qty_kirim), 0);
   };
 
   const handleProdukChange = (e) => {
@@ -161,10 +169,7 @@ export default function Home() {
         no_bon: generateNoBon(),
         tanggal: new Date().toLocaleDateString("id-ID"),
         nama_pembuat: namaPembuat,
-        shift,
-        line,
-        tujuan,
-        keterangan,
+        shift, line, tujuan, keterangan,
         sku_produk: selectedSku,
         nama_produk: selectedNama,
         items,
@@ -174,16 +179,9 @@ export default function Home() {
     setLoading(false);
     if (data.success) {
       setPesan("✅ BON PM berhasil disimpan!");
-      setSelectedSku("");
-      setSelectedNama("");
-      setBomList([]);
-      setNamaPembuat("");
-      setShift("");
-      setLine("");
-      setTujuan("");
-      setKeterangan("");
-      setQtyMap({});
-      setSelectedTapes([]);
+      setSelectedSku(""); setSelectedNama(""); setBomList([]);
+      setNamaPembuat(""); setShift(""); setLine("");
+      setTujuan(""); setKeterangan(""); setQtyMap({}); setSelectedTapes([]);
       fetchHistory(filterTanggal);
     } else {
       setPesan("❌ Gagal menyimpan: " + data.error);
@@ -199,28 +197,15 @@ export default function Home() {
       qty_bon: item.qty_bon,
       uom: item.uom,
     });
-    setQtyKirim("");
-    setNamaKirim("");
-    setPasswordKirim("");
-    setKirimPesan("");
+    setQtyKirim(""); setNamaKirim(""); setPasswordKirim(""); setKirimPesan("");
     fetchRiwayatKirim(item.no_bon);
   };
 
   const handleKirim = async () => {
-    if (!namaKirim.trim()) {
-      setKirimPesan("⚠️ Nama pengirim wajib diisi!");
-      return;
-    }
-    if (!passwordKirim) {
-      setKirimPesan("⚠️ Password wajib diisi!");
-      return;
-    }
-    if (!qtyKirim || Number(qtyKirim) <= 0) {
-      setKirimPesan("⚠️ Masukkan qty yang valid!");
-      return;
-    }
-    setKirimLoading(true);
-    setKirimPesan("");
+    if (!namaKirim.trim()) { setKirimPesan("⚠️ Nama pengirim wajib diisi!"); return; }
+    if (!passwordKirim) { setKirimPesan("⚠️ Password wajib diisi!"); return; }
+    if (!qtyKirim || Number(qtyKirim) <= 0) { setKirimPesan("⚠️ Masukkan qty yang valid!"); return; }
+    setKirimLoading(true); setKirimPesan("");
     const res = await fetch("/api/pengiriman", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -238,9 +223,7 @@ export default function Home() {
     setKirimLoading(false);
     if (data.success) {
       setKirimPesan(`✅ Terkirim ${qtyKirim} ${modalKirim.uom} pada ${data.jam_kirim}`);
-      setQtyKirim("");
-      setNamaKirim("");
-      setPasswordKirim("");
+      setQtyKirim(""); setNamaKirim(""); setPasswordKirim("");
       fetchRiwayatKirim(modalKirim.no_bon);
     } else {
       setKirimPesan("❌ " + data.error);
@@ -248,23 +231,13 @@ export default function Home() {
   };
 
   const handleOpenCeklis = (item) => {
-    setModalCeklis({
-      no_bon: item.no_bon,
-      material_code: item.material_code,
-      nama_pm: item.nama_pm,
-    });
-    setPasswordCeklis("");
-    setCeklisPesan("");
-    fetchStatusCeklis(item.no_bon);
+    setModalCeklis({ no_bon: item.no_bon, material_code: item.material_code, nama_pm: item.nama_pm });
+    setPasswordCeklis(""); setCeklisPesan("");
   };
 
   const handleCeklis = async () => {
-    if (!passwordCeklis) {
-      setCeklisPesan("⚠️ Password wajib diisi!");
-      return;
-    }
-    setCeklisLoading(true);
-    setCeklisPesan("");
+    if (!passwordCeklis) { setCeklisPesan("⚠️ Password wajib diisi!"); return; }
+    setCeklisLoading(true); setCeklisPesan("");
     const res = await fetch("/api/ceklis", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -279,21 +252,88 @@ export default function Home() {
     if (data.success) {
       setCeklisPesan(`✅ Berhasil diceklis pada ${data.jam_ceklis}`);
       fetchStatusCeklis(modalCeklis.no_bon);
-      setTimeout(() => {
-        setModalCeklis(null);
-        setPasswordCeklis("");
-        setCeklisPesan("");
-      }, 1500);
+      setTimeout(() => { setModalCeklis(null); setPasswordCeklis(""); setCeklisPesan(""); }, 1500);
     } else {
       setCeklisPesan("❌ " + data.error);
     }
   };
 
-  const getTotalKirim = (no_bon, material_code) => {
-    const riwayat = riwayatKirim[no_bon] || [];
-    return riwayat
-      .filter((r) => r.material_code === material_code)
-      .reduce((sum, r) => sum + Number(r.qty_kirim), 0);
+  const handleDownloadPDF = () => {
+    const grouped = history
+      .filter((row) => filterLine === "" || row.line === filterLine)
+      .reduce((acc, row) => {
+        const key = `${row.shift}-Line${row.line}-${row.nama_pembuat}`;
+        if (!acc[key]) acc[key] = { ...row, items: [] };
+        acc[key].items.push(row);
+        return acc;
+      }, {});
+
+    const tanggalFormatted = new Date(filterTanggal).toLocaleDateString("id-ID", {
+      day: "numeric", month: "long", year: "numeric"
+    });
+
+    let html = `
+      <html><head><title>BON PM ${tanggalFormatted}</title>
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; }
+        h2 { font-size: 14px; margin-bottom: 4px; }
+        .subtitle { color: #666; margin-bottom: 16px; font-size: 11px; }
+        .group { margin-bottom: 20px; page-break-inside: avoid; }
+        .group-header { background: #1d4ed8; color: white; padding: 6px 10px; font-weight: bold; display: flex; justify-content: space-between; border-radius: 4px 4px 0 0; }
+        .produk { background: #f3f4f6; padding: 4px 10px; font-size: 10px; color: #444; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #e5e7eb; text-align: left; padding: 4px 8px; font-size: 10px; }
+        td { padding: 4px 8px; border-bottom: 1px solid #e5e7eb; font-size: 10px; }
+        .ok { color: #16a34a; font-weight: bold; }
+        .kurang { color: #ea580c; }
+      </style></head><body>
+      <h2>📋 Laporan BON PM - ${tanggalFormatted}</h2>
+      <div class="subtitle">Dicetak pada: ${new Date().toLocaleString("id-ID")}</div>
+    `;
+
+    Object.entries(grouped).forEach(([key, group]) => {
+      html += `
+        <div class="group">
+          <div class="group-header">
+            <span>${group.shift} · Line ${group.line} · ${group.nama_pembuat}</span>
+            <span>${group.tanggal}</span>
+          </div>
+          <div class="produk">${group.nama_produk}</div>
+          <table>
+            <thead><tr>
+              <th>Nama PM</th>
+              <th>QTY BON</th>
+              <th>UOM</th>
+              <th>Total Kirim</th>
+              <th>Status Kirim</th>
+              <th>Input Sistem</th>
+            </tr></thead>
+            <tbody>
+      `;
+      group.items.forEach((item) => {
+        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+        const sudahLunas = totalKirim >= Number(item.qty_bon);
+        const sudahCeklis = isSudahCeklis(item.no_bon, item.material_code);
+        html += `
+          <tr>
+            <td>${item.nama_pm}</td>
+            <td>${item.qty_bon}</td>
+            <td>${item.uom}</td>
+            <td class="${sudahLunas ? "ok" : "kurang"}">${totalKirim}</td>
+            <td class="${sudahLunas ? "ok" : "kurang"}">${sudahLunas ? "✓ Lunas" : "Belum Lunas"}</td>
+            <td class="${sudahCeklis ? "ok" : "kurang"}">${sudahCeklis ? "✓ Sudah" : "Belum"}</td>
+          </tr>
+        `;
+      });
+      html += `</tbody></table></div>`;
+    });
+
+    html += `</body></html>`;
+
+    const win = window.open("", "_blank");
+    win.document.write(html);
+    win.document.close();
+    win.print();
   };
 
   return (
@@ -305,25 +345,15 @@ export default function Home() {
           <h1 className="text-xl md:text-2xl font-bold mb-4 flex items-center gap-2">
             📋 BON PM WAFER MI JAYANTI 2
           </h1>
-
           <div className="flex flex-col gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium mb-1">Nama Pembuat</label>
-              <input
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Nama lengkap"
-                value={namaPembuat}
-                onChange={(e) => setNamaPembuat(e.target.value)}
-              />
+              <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaPembuat} onChange={(e) => setNamaPembuat(e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Shift</label>
-                <select
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  value={shift}
-                  onChange={(e) => setShift(e.target.value)}
-                >
+                <select className="w-full border rounded-lg px-3 py-2 text-sm" value={shift} onChange={(e) => setShift(e.target.value)}>
                   <option value="">-- Pilih Shift --</option>
                   <option value="Shift 1">Shift 1</option>
                   <option value="Shift 2">Shift 2</option>
@@ -332,25 +362,14 @@ export default function Home() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Line Produksi</label>
-                <input
-                  type="number"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  placeholder="No. Line"
-                  value={line}
-                  onChange={(e) => setLine(e.target.value)}
-                />
+                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="No. Line" value={line} onChange={(e) => setLine(e.target.value)} />
               </div>
             </div>
           </div>
-
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium mb-1">Tujuan</label>
-              <select
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                value={tujuan}
-                onChange={(e) => setTujuan(e.target.value)}
-              >
+              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={tujuan} onChange={(e) => setTujuan(e.target.value)}>
                 <option value="">-- Pilih Tujuan --</option>
                 <option value="Ekspor">Ekspor</option>
                 <option value="Lokal">Lokal</option>
@@ -358,52 +377,22 @@ export default function Home() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Keterangan</label>
-              <input
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Opsional"
-                value={keterangan}
-                onChange={(e) => setKeterangan(e.target.value)}
-              />
+              <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opsional" value={keterangan} onChange={(e) => setKeterangan(e.target.value)} />
             </div>
           </div>
-
           <div className="mb-4">
             <label className="block text-sm font-medium mb-1">Pilih Produk</label>
-            <select
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-              value={selectedSku}
-              onChange={handleProdukChange}
-            >
+            <select className="w-full border rounded-lg px-3 py-2 text-sm" value={selectedSku} onChange={handleProdukChange}>
               <option value="">-- Pilih Produk --</option>
-              {produkList.map((p) => (
-                <option key={p.sku} value={p.sku}>
-                  {p.sku} - {p.nama}
-                </option>
-              ))}
+              {produkList.map((p) => (<option key={p.sku} value={p.sku}>{p.sku} - {p.nama}</option>))}
             </select>
           </div>
-
           <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">
-              Daftar Bahan PM (Otomatis dari BOM)
-            </label>
+            <label className="block text-sm font-medium mb-2">Daftar Bahan PM (Otomatis dari BOM)</label>
             {packingTapes.length > 0 && (
-              <select
-                className="w-full border rounded-lg px-3 py-2 text-sm mb-3"
-                onChange={(e) => {
-                  handleAddTape(e.target.value);
-                  e.target.value = "";
-                }}
-                defaultValue=""
-              >
+              <select className="w-full border rounded-lg px-3 py-2 text-sm mb-3" onChange={(e) => { handleAddTape(e.target.value); e.target.value = ""; }} defaultValue="">
                 <option value="">-- Tambah PM --</option>
-                {packingTapes
-                  .filter((t) => !selectedTapes.find((s) => s.material_code === t.material_code))
-                  .map((t) => (
-                    <option key={t.material_code} value={t.material_code}>
-                      {t.nama_pm}
-                    </option>
-                  ))}
+                {packingTapes.filter((t) => !selectedTapes.find((s) => s.material_code === t.material_code)).map((t) => (<option key={t.material_code} value={t.material_code}>{t.nama_pm}</option>))}
               </select>
             )}
             <div className="border rounded-lg overflow-hidden">
@@ -418,11 +407,7 @@ export default function Home() {
                 </thead>
                 <tbody>
                   {nonTapes.length === 0 && selectedTapes.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="text-center py-4 text-gray-400 text-xs">
-                        {selectedSku ? "Memuat data..." : "Silakan pilih produk terlebih dahulu..."}
-                      </td>
-                    </tr>
+                    <tr><td colSpan={4} className="text-center py-4 text-gray-400 text-xs">{selectedSku ? "Memuat data..." : "Silakan pilih produk terlebih dahulu..."}</td></tr>
                   ) : (
                     <>
                       {nonTapes.map((b) => (
@@ -430,37 +415,18 @@ export default function Home() {
                           <td className="px-2 py-2 text-xs">{b.material_code}</td>
                           <td className="px-2 py-2 text-xs">{b.nama_pm}</td>
                           <td className="px-2 py-2 text-xs">{b.uom}</td>
-                          <td className="px-2 py-2">
-                            <input
-                              type="number"
-                              className="border rounded px-2 py-1 w-16 text-xs"
-                              placeholder="0"
-                              value={qtyMap[b.material_code] || ""}
-                              onChange={(e) => handleQtyChange(b.material_code, e.target.value)}
-                            />
-                          </td>
+                          <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[b.material_code] || ""} onChange={(e) => handleQtyChange(b.material_code, e.target.value)} /></td>
                         </tr>
                       ))}
                       {selectedTapes.map((t) => (
                         <tr key={t.material_code} className="border-t bg-blue-50">
                           <td className="px-2 py-2 text-xs">{t.material_code}</td>
                           <td className="px-2 py-2 text-xs flex items-center gap-1">
-                            <button
-                              onClick={() => handleRemoveTape(t.material_code)}
-                              className="text-red-400 hover:text-red-600 font-bold text-xs"
-                            >✕</button>
+                            <button onClick={() => handleRemoveTape(t.material_code)} className="text-red-400 hover:text-red-600 font-bold text-xs">✕</button>
                             {t.nama_pm}
                           </td>
                           <td className="px-2 py-2 text-xs">{t.uom}</td>
-                          <td className="px-2 py-2">
-                            <input
-                              type="number"
-                              className="border rounded px-2 py-1 w-16 text-xs"
-                              placeholder="0"
-                              value={t.qty || ""}
-                              onChange={(e) => handleTapeQty(t.material_code, e.target.value)}
-                            />
-                          </td>
+                          <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={t.qty || ""} onChange={(e) => handleTapeQty(t.material_code, e.target.value)} /></td>
                         </tr>
                       ))}
                     </>
@@ -469,18 +435,8 @@ export default function Home() {
               </table>
             </div>
           </div>
-
-          {pesan && (
-            <div className="mb-3 p-3 rounded-lg bg-blue-50 text-blue-800 font-medium text-sm">
-              {pesan}
-            </div>
-          )}
-
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-base"
-          >
+          {pesan && <div className="mb-3 p-3 rounded-lg bg-blue-50 text-blue-800 font-medium text-sm">{pesan}</div>}
+          <button onClick={handleSubmit} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-base">
             {loading ? "Menyimpan..." : "💾 Simpan Nota BON PM"}
           </button>
         </div>
@@ -489,23 +445,17 @@ export default function Home() {
         <div className="bg-white rounded-xl shadow p-4 md:p-6">
           <div className="flex flex-col gap-2 mb-4 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg md:text-xl font-bold">📊 History BON PM</h2>
-            <div className="flex gap-2">
-              <select
-                className="flex-1 border rounded-lg px-2 py-2 text-sm"
-                value={filterLine}
-                onChange={(e) => setFilterLine(e.target.value)}
-              >
+            <div className="flex gap-2 flex-wrap">
+              <select className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterLine} onChange={(e) => setFilterLine(e.target.value)}>
                 <option value="">Semua Line</option>
-                {[...new Set(history.map((r) => r.line))].filter(Boolean).sort().map((l) => (
-                  <option key={l} value={l}>Line {l}</option>
-                ))}
+                {[...new Set(history.map((r) => r.line))].filter(Boolean).sort().map((l) => (<option key={l} value={l}>Line {l}</option>))}
               </select>
-              <input
-                type="date"
-                className="flex-1 border rounded-lg px-2 py-2 text-sm"
-                value={filterTanggal}
-                onChange={(e) => setFilterTanggal(e.target.value)}
-              />
+              <input type="date" className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterTanggal} onChange={(e) => setFilterTanggal(e.target.value)} />
+              {history.length > 0 && (
+                <button onClick={handleDownloadPDF} className="bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap">
+                  📄 PDF
+                </button>
+              )}
             </div>
           </div>
 
@@ -530,9 +480,7 @@ export default function Home() {
                     <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
                     <span>{group.tanggal}</span>
                   </div>
-                  <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">
-                    {group.nama_produk}
-                  </div>
+                  <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{group.nama_produk}</div>
                   <table className="w-full text-xs">
                     <thead className="bg-gray-100">
                       <tr>
@@ -553,28 +501,16 @@ export default function Home() {
                             <td className="px-2 py-1">{item.nama_pm}</td>
                             <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
                             <td className="px-2 py-1">
-                              <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>
-                                {totalKirim}
-                              </span>
+                              <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
                             </td>
                             <td className="px-2 py-1">
-                              <button
-                                onClick={() => handleOpenKirim(item, group)}
-                                className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg"
-                              >
-                                🚚
-                              </button>
+                              <button onClick={() => handleOpenKirim(item, group)} className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg">🚚</button>
                             </td>
                             <td className="px-2 py-1">
                               {ceklisInfo ? (
                                 <span className="text-green-600 font-bold text-xs">✅</span>
                               ) : (
-                                <button
-                                  onClick={() => handleOpenCeklis(item)}
-                                  className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg"
-                                >
-                                  ☑️
-                                </button>
+                                <button onClick={() => handleOpenCeklis(item)} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg">☑️</button>
                               )}
                             </td>
                           </tr>
@@ -598,87 +534,41 @@ export default function Home() {
             <p className="text-xs text-gray-500 mb-1">No BON: {modalKirim.no_bon}</p>
             <p className="text-sm font-medium mb-1">{modalKirim.nama_pm}</p>
             <p className="text-xs text-gray-500 mb-4">
-              QTY BON: {modalKirim.qty_bon} {modalKirim.uom} ·
-              Sudah terkirim: {getTotalKirim(modalKirim.no_bon, modalKirim.material_code)} {modalKirim.uom}
+              QTY BON: {modalKirim.qty_bon} {modalKirim.uom} · Sudah terkirim: {getTotalKirim(modalKirim.no_bon, modalKirim.material_code)} {modalKirim.uom}
             </p>
-
-            {/* Riwayat Pengiriman */}
-            {(riwayatKirim[modalKirim.no_bon] || []).filter(
-              (r) => r.material_code === modalKirim.material_code
-            ).length > 0 && (
+            {(riwayatKirim[modalKirim.no_bon] || []).filter((r) => r.material_code === modalKirim.material_code).length > 0 && (
               <div className="mb-4 bg-gray-50 rounded-lg p-3">
                 <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Pengiriman:</p>
                 <div className="space-y-1">
-                  {(riwayatKirim[modalKirim.no_bon] || [])
-                    .filter((r) => r.material_code === modalKirim.material_code)
-                    .map((r, i) => (
-                      <div key={i} className="flex justify-between text-xs text-gray-600">
-                        <span>• {r.qty_kirim} {modalKirim.uom} — {r.nama_pembuat}</span>
-                        <span className="text-gray-400">{r.jam_kirim}</span>
-                      </div>
-                    ))}
+                  {(riwayatKirim[modalKirim.no_bon] || []).filter((r) => r.material_code === modalKirim.material_code).map((r, i) => (
+                    <div key={i} className="flex justify-between text-xs text-gray-600">
+                      <span>• {r.qty_kirim} {modalKirim.uom} — {r.nama_pembuat}</span>
+                      <span className="text-gray-400">{r.jam_kirim}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
-
             <div className="space-y-3 mb-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Nama Pengirim</label>
-                <input
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  placeholder="Nama lengkap"
-                  value={namaKirim}
-                  onChange={(e) => setNamaKirim(e.target.value)}
-                />
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaKirim} onChange={(e) => setNamaKirim(e.target.value)} />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Password</label>
-                <input
-                  type="password"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  placeholder="Password"
-                  value={passwordKirim}
-                  onChange={(e) => setPasswordKirim(e.target.value)}
-                />
+                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password" value={passwordKirim} onChange={(e) => setPasswordKirim(e.target.value)} />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">
                   QTY Kirim ({modalKirim.uom}) — sisa: {Number(modalKirim.qty_bon) - getTotalKirim(modalKirim.no_bon, modalKirim.material_code)}
                 </label>
-                <input
-                  type="number"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  placeholder="Masukkan qty"
-                  value={qtyKirim}
-                  onChange={(e) => setQtyKirim(e.target.value)}
-                />
+                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan qty" value={qtyKirim} onChange={(e) => setQtyKirim(e.target.value)} />
               </div>
             </div>
-
-            {kirimPesan && (
-              <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">
-                {kirimPesan}
-              </div>
-            )}
-
+            {kirimPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{kirimPesan}</div>}
             <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setModalKirim(null);
-                  setQtyKirim("");
-                  setNamaKirim("");
-                  setPasswordKirim("");
-                  setKirimPesan("");
-                }}
-                className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
-              >
-                Tutup
-              </button>
-              <button
-                onClick={handleKirim}
-                disabled={kirimLoading}
-                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl py-2 text-sm"
-              >
+              <button onClick={() => { setModalKirim(null); setQtyKirim(""); setNamaKirim(""); setPasswordKirim(""); setKirimPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Tutup</button>
+              <button onClick={handleKirim} disabled={kirimLoading} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl py-2 text-sm">
                 {kirimLoading ? "Menyimpan..." : "🚚 Catat Kirim"}
               </button>
             </div>
@@ -695,35 +585,12 @@ export default function Home() {
             <p className="text-sm font-medium mb-4">{modalCeklis.nama_pm}</p>
             <div className="mb-3">
               <label className="block text-sm font-medium mb-1">Password</label>
-              <input
-                type="password"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Masukkan password"
-                value={passwordCeklis}
-                onChange={(e) => setPasswordCeklis(e.target.value)}
-              />
+              <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan password" value={passwordCeklis} onChange={(e) => setPasswordCeklis(e.target.value)} />
             </div>
-            {ceklisPesan && (
-              <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">
-                {ceklisPesan}
-              </div>
-            )}
+            {ceklisPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{ceklisPesan}</div>}
             <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setModalCeklis(null);
-                  setPasswordCeklis("");
-                  setCeklisPesan("");
-                }}
-                className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleCeklis}
-                disabled={ceklisLoading}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-2 text-sm"
-              >
+              <button onClick={() => { setModalCeklis(null); setPasswordCeklis(""); setCeklisPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
+              <button onClick={handleCeklis} disabled={ceklisLoading} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-2 text-sm">
                 {ceklisLoading ? "Menyimpan..." : "✅ Konfirmasi"}
               </button>
             </div>
