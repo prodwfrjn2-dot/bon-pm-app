@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 
 export default function Home() {
+  const [divisi, setDivisi] = useState("");
   const [produkList, setProdukList] = useState([]);
   const [selectedSku, setSelectedSku] = useState("");
   const [selectedNama, setSelectedNama] = useState("");
@@ -36,19 +37,30 @@ export default function Home() {
   const [ceklisPesan, setCeklisPesan] = useState("");
   const [statusCeklis, setStatusCeklis] = useState({});
 
-  // State modal edit
   const [modalEdit, setModalEdit] = useState(null);
-  // modalEdit: { no_bon, material_code, nama_pm, qty_bon, uom }
   const [qtyEdit, setQtyEdit] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editPesan, setEditPesan] = useState("");
   const [riwayatEdit, setRiwayatEdit] = useState({});
 
+  // Fetch produk saat divisi berubah
   useEffect(() => {
-    fetch("/api/produk")
+    if (!divisi) {
+      setProdukList([]);
+      setSelectedSku("");
+      setSelectedNama("");
+      setBomList([]);
+      return;
+    }
+    fetch(`/api/produk?divisi=${encodeURIComponent(divisi)}`)
       .then((r) => r.json())
-      .then((d) => setProdukList(d.data || []));
-  }, []);
+      .then((d) => {
+        setProdukList(d.data || []);
+        setSelectedSku("");
+        setSelectedNama("");
+        setBomList([]);
+      });
+  }, [divisi]);
 
   useEffect(() => {
     if (!selectedSku) return;
@@ -109,6 +121,13 @@ export default function Home() {
       .reduce((sum, r) => sum + Number(r.qty_kirim), 0);
   };
 
+  const handleDivisiChange = (e) => {
+    setDivisi(e.target.value);
+    setQtyMap({});
+    setSelectedTapes([]);
+    setBomList([]);
+  };
+
   const handleProdukChange = (e) => {
     const sku = e.target.value;
     const nama = produkList.find((p) => p.sku === sku)?.nama || "";
@@ -154,7 +173,7 @@ export default function Home() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedSku || !namaPembuat || !shift || !line || !tujuan) {
+    if (!divisi || !selectedSku || !namaPembuat || !shift || !line || !tujuan) {
       setPesan("⚠️ Lengkapi semua field terlebih dahulu!");
       return;
     }
@@ -183,6 +202,7 @@ export default function Home() {
         shift, line, tujuan, keterangan,
         sku_produk: selectedSku,
         nama_produk: selectedNama,
+        divisi,
         items,
       }),
     });
@@ -190,7 +210,7 @@ export default function Home() {
     setLoading(false);
     if (data.success) {
       setPesan("✅ BON PM berhasil disimpan!");
-      setSelectedSku(""); setSelectedNama(""); setBomList([]);
+      setDivisi(""); setSelectedSku(""); setSelectedNama(""); setBomList([]);
       setNamaPembuat(""); setShift(""); setLine("");
       setTujuan(""); setKeterangan(""); setQtyMap({}); setSelectedTapes([]);
       fetchHistory(filterTanggal);
@@ -303,11 +323,7 @@ export default function Home() {
       setEditPesan(`✅ Qty diubah dari ${modalEdit.qty_bon} → ${qtyEdit}`);
       fetchRiwayatEdit(modalEdit.no_bon);
       fetchHistory(filterTanggal);
-      setTimeout(() => {
-        setModalEdit(null);
-        setQtyEdit("");
-        setEditPesan("");
-      }, 1500);
+      setTimeout(() => { setModalEdit(null); setQtyEdit(""); setEditPesan(""); }, 1500);
     } else {
       setEditPesan("❌ " + data.error);
     }
@@ -367,9 +383,7 @@ export default function Home() {
         const sudahCeklis = isSudahCeklis(item.no_bon, item.material_code);
         html += `
           <tr>
-            <td>${item.nama_pm}</td>
-            <td>${item.qty_bon}</td>
-            <td>${item.uom}</td>
+            <td>${item.nama_pm}</td><td>${item.qty_bon}</td><td>${item.uom}</td>
             <td class="${sudahLunas ? "ok" : "kurang"}">${totalKirim}</td>
             <td class="${sudahLunas ? "ok" : "kurang"}">${sudahLunas ? "✓ Lunas" : "Belum Lunas"}</td>
             <td class="${sudahCeklis ? "ok" : "kurang"}">${sudahCeklis ? "✓ Sudah" : "Belum"}</td>
@@ -394,7 +408,18 @@ export default function Home() {
           <h1 className="text-xl md:text-2xl font-bold mb-4 flex items-center gap-2">
             📋 BON PM WAFER MI JAYANTI 2
           </h1>
+
           <div className="flex flex-col gap-3 mb-4">
+            {/* Divisi */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Divisi</label>
+              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={divisi} onChange={handleDivisiChange}>
+                <option value="">-- Pilih Divisi --</option>
+                <option value="Wafer Flat">Wafer Flat</option>
+                <option value="Wafer Stick">Wafer Stick</option>
+              </select>
+            </div>
+
             <div>
               <label className="block text-sm font-medium mb-1">Nama Pembuat</label>
               <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaPembuat} onChange={(e) => setNamaPembuat(e.target.value)} />
@@ -415,6 +440,7 @@ export default function Home() {
               </div>
             </div>
           </div>
+
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium mb-1">Tujuan</label>
@@ -429,13 +455,15 @@ export default function Home() {
               <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opsional" value={keterangan} onChange={(e) => setKeterangan(e.target.value)} />
             </div>
           </div>
+
           <div className="mb-4">
             <label className="block text-sm font-medium mb-1">Pilih Produk</label>
-            <select className="w-full border rounded-lg px-3 py-2 text-sm" value={selectedSku} onChange={handleProdukChange}>
-              <option value="">-- Pilih Produk --</option>
+            <select className="w-full border rounded-lg px-3 py-2 text-sm" value={selectedSku} onChange={handleProdukChange} disabled={!divisi}>
+              <option value="">{divisi ? "-- Pilih Produk --" : "-- Pilih Divisi Dulu --"}</option>
               {produkList.map((p) => (<option key={p.sku} value={p.sku}>{p.sku} - {p.nama}</option>))}
             </select>
           </div>
+
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2">Daftar Bahan PM (Otomatis dari BOM)</label>
             {packingTapes.length > 0 && (
@@ -456,7 +484,9 @@ export default function Home() {
                 </thead>
                 <tbody>
                   {nonTapes.length === 0 && selectedTapes.length === 0 ? (
-                    <tr><td colSpan={4} className="text-center py-4 text-gray-400 text-xs">{selectedSku ? "Memuat data..." : "Silakan pilih produk terlebih dahulu..."}</td></tr>
+                    <tr><td colSpan={4} className="text-center py-4 text-gray-400 text-xs">
+                      {!divisi ? "Pilih divisi terlebih dahulu..." : !selectedSku ? "Silakan pilih produk terlebih dahulu..." : "Memuat data..."}
+                    </td></tr>
                   ) : (
                     <>
                       {nonTapes.map((b) => (
@@ -484,6 +514,7 @@ export default function Home() {
               </table>
             </div>
           </div>
+
           {pesan && <div className="mb-3 p-3 rounded-lg bg-blue-50 text-blue-800 font-medium text-sm">{pesan}</div>}
           <button onClick={handleSubmit} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-base">
             {loading ? "Menyimpan..." : "💾 Simpan Nota BON PM"}
@@ -586,39 +617,24 @@ export default function Home() {
             <h3 className="text-lg font-bold mb-1">✏️ Edit QTY BON</h3>
             <p className="text-xs text-gray-500 mb-1">No BON: {modalEdit.no_bon}</p>
             <p className="text-sm font-medium mb-4">{modalEdit.nama_pm}</p>
-
-            {/* Riwayat Edit */}
             {(riwayatEdit[modalEdit.no_bon] || []).filter((r) => r.nama_pm === modalEdit.nama_pm).length > 0 && (
               <div className="mb-4 bg-gray-50 rounded-lg p-3">
                 <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Perubahan:</p>
                 <div className="space-y-1">
-                  {(riwayatEdit[modalEdit.no_bon] || [])
-                    .filter((r) => r.nama_pm === modalEdit.nama_pm)
-                    .map((r, i) => (
-                      <div key={i} className="flex justify-between text-xs text-gray-600">
-                        <span>• {r.qty_lama} → {r.qty_baru} {modalEdit.uom}</span>
-                        <span className="text-gray-400">{r.waktu}</span>
-                      </div>
-                    ))}
+                  {(riwayatEdit[modalEdit.no_bon] || []).filter((r) => r.nama_pm === modalEdit.nama_pm).map((r, i) => (
+                    <div key={i} className="flex justify-between text-xs text-gray-600">
+                      <span>• {r.qty_lama} → {r.qty_baru} {modalEdit.uom}</span>
+                      <span className="text-gray-400">{r.waktu}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
-
             <div className="mb-3">
-              <label className="block text-sm font-medium mb-1">
-                QTY Baru ({modalEdit.uom}) — saat ini: {modalEdit.qty_bon}
-              </label>
-              <input
-                type="number"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Masukkan qty baru"
-                value={qtyEdit}
-                onChange={(e) => setQtyEdit(e.target.value)}
-              />
+              <label className="block text-sm font-medium mb-1">QTY Baru ({modalEdit.uom}) — saat ini: {modalEdit.qty_bon}</label>
+              <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan qty baru" value={qtyEdit} onChange={(e) => setQtyEdit(e.target.value)} />
             </div>
-
             {editPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{editPesan}</div>}
-
             <div className="flex gap-2">
               <button onClick={() => { setModalEdit(null); setQtyEdit(""); setEditPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
               <button onClick={handleEdit} disabled={editLoading} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl py-2 text-sm">
