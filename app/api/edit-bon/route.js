@@ -4,7 +4,20 @@ export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { no_bon, material_code, nama_pm, qty_lama, qty_baru, nama_editor } = body;
+    const { no_bon, material_code, nama_pm, qty_lama, qty_baru, nama_editor, password } = body;
+
+    // Cek password di sheet Users kolom B
+    const usersRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "Users!B2:B1000",
+    });
+    const passwords = (usersRes.data.values || []).map((row) => row[0]);
+    if (!passwords.includes(password)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Password salah!" }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     const waktu = new Date().toLocaleString("id-ID");
 

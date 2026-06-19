@@ -40,6 +40,7 @@ export default function Home() {
   const [modalEdit, setModalEdit] = useState(null);
   const [qtyEdit, setQtyEdit] = useState("");
   const [namaEditor, setNamaEditor] = useState("");
+  const [passwordEdit, setPasswordEdit] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editPesan, setEditPesan] = useState("");
   const [riwayatEdit, setRiwayatEdit] = useState({});
@@ -88,6 +89,7 @@ export default function Home() {
     noBonList.forEach((no_bon) => {
       fetchRiwayatKirim(no_bon);
       fetchStatusCeklis(no_bon);
+      fetchRiwayatEdit(no_bon);
     });
   };
 
@@ -119,6 +121,22 @@ export default function Home() {
     return riwayat
       .filter((r) => r.material_code === material_code)
       .reduce((sum, r) => sum + Number(r.qty_kirim), 0);
+  };
+
+  const isAdaEditSetelahKirim = (no_bon, material_code) => {
+    const edits = (riwayatEdit[no_bon] || []).filter((r) => r.nama_pm === material_code);
+    const kirims = (riwayatKirim[no_bon] || []).filter((r) => r.material_code === material_code);
+    if (edits.length === 0) return false;
+    if (kirims.length === 0) return false;
+    // Cek apakah ada edit setelah pengiriman terakhir
+    const lastKirim = kirims[kirims.length - 1]?.jam_kirim || "";
+    const lastEdit = edits[edits.length - 1]?.waktu || "";
+    return lastEdit > lastKirim;
+  };
+
+  const hasRiwayatEdit = (no_bon, nama_pm) => {
+    const edits = riwayatEdit[no_bon] || [];
+    return edits.some((r) => r.nama_pm === nama_pm);
   };
 
   const handleDivisiChange = (e) => {
@@ -299,12 +317,14 @@ export default function Home() {
     });
     setQtyEdit(item.qty_bon);
     setNamaEditor("");
+    setPasswordEdit("");
     setEditPesan("");
     fetchRiwayatEdit(item.no_bon);
   };
 
   const handleEdit = async () => {
     if (!namaEditor.trim()) { setEditPesan("⚠️ Nama editor wajib diisi!"); return; }
+    if (!passwordEdit) { setEditPesan("⚠️ Password wajib diisi!"); return; }
     if (!qtyEdit || Number(qtyEdit) < 0) { setEditPesan("⚠️ Masukkan qty yang valid!"); return; }
     if (Number(qtyEdit) === Number(modalEdit.qty_bon)) { setEditPesan("⚠️ Qty sama, tidak ada perubahan!"); return; }
     setEditLoading(true); setEditPesan("");
@@ -318,6 +338,7 @@ export default function Home() {
         qty_lama: modalEdit.qty_bon,
         qty_baru: Number(qtyEdit),
         nama_editor: namaEditor,
+        password: passwordEdit,
       }),
     });
     const data = await res.json();
@@ -326,7 +347,7 @@ export default function Home() {
       setEditPesan(`✅ Qty diubah dari ${modalEdit.qty_bon} → ${qtyEdit}`);
       fetchRiwayatEdit(modalEdit.no_bon);
       fetchHistory(filterTanggal);
-      setTimeout(() => { setModalEdit(null); setQtyEdit(""); setNamaEditor(""); setEditPesan(""); }, 1500);
+      setTimeout(() => { setModalEdit(null); setQtyEdit(""); setNamaEditor(""); setPasswordEdit(""); setEditPesan(""); }, 1500);
     } else {
       setEditPesan("❌ " + data.error);
     }
@@ -573,6 +594,7 @@ export default function Home() {
                         const totalKirim = getTotalKirim(item.no_bon, item.material_code);
                         const sudahLunas = totalKirim >= Number(item.qty_bon);
                         const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
+                        const adaEdit = hasRiwayatEdit(item.no_bon, item.nama_pm);
                         return (
                           <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
                             <td className="px-2 py-1">{item.nama_pm}</td>
@@ -584,7 +606,12 @@ export default function Home() {
                               <button onClick={() => handleOpenEdit(item)} className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold px-2 py-1 rounded-lg">✏️</button>
                             </td>
                             <td className="px-2 py-1">
-                              <button onClick={() => handleOpenKirim(item, group)} className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg">🚚</button>
+                              <button
+                                onClick={() => handleOpenKirim(item, group)}
+                                className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
+                              >
+                                {adaEdit ? "⚠️🚚" : "🚚"}
+                              </button>
                             </td>
                             <td className="px-2 py-1">
                               {ceklisInfo ? (
@@ -634,6 +661,10 @@ export default function Home() {
                 <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaEditor} onChange={(e) => setNamaEditor(e.target.value)} />
               </div>
               <div>
+                <label className="block text-sm font-medium mb-1">Password</label>
+                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan password" value={passwordEdit} onChange={(e) => setPasswordEdit(e.target.value)} />
+              </div>
+              <div>
                 <label className="block text-sm font-medium mb-1">QTY Baru ({modalEdit.uom}) — saat ini: {modalEdit.qty_bon}</label>
                 <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan qty baru" value={qtyEdit} onChange={(e) => setQtyEdit(e.target.value)} />
               </div>
@@ -641,7 +672,7 @@ export default function Home() {
 
             {editPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{editPesan}</div>}
             <div className="flex gap-2">
-              <button onClick={() => { setModalEdit(null); setQtyEdit(""); setNamaEditor(""); setEditPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
+              <button onClick={() => { setModalEdit(null); setQtyEdit(""); setNamaEditor(""); setPasswordEdit(""); setEditPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
               <button onClick={handleEdit} disabled={editLoading} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl py-2 text-sm">
                 {editLoading ? "Menyimpan..." : "✏️ Simpan Perubahan"}
               </button>
@@ -657,6 +688,14 @@ export default function Home() {
             <h3 className="text-lg font-bold mb-1">🚚 Catat Pengiriman</h3>
             <p className="text-xs text-gray-500 mb-1">No BON: {modalKirim.no_bon}</p>
             <p className="text-sm font-medium mb-1">{modalKirim.nama_pm}</p>
+
+            {/* Notifikasi jika ada edit */}
+            {hasRiwayatEdit(modalKirim.no_bon, modalKirim.nama_pm) && (
+              <div className="mb-3 p-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-medium">
+                ⚠️ QTY BON item ini pernah diubah! Pastikan qty kirim sesuai dengan BON terbaru ({modalKirim.qty_bon} {modalKirim.uom}).
+              </div>
+            )}
+
             <p className="text-xs text-gray-500 mb-4">
               QTY BON: {modalKirim.qty_bon} {modalKirim.uom} · Sudah terkirim: {getTotalKirim(modalKirim.no_bon, modalKirim.material_code)} {modalKirim.uom}
             </p>
