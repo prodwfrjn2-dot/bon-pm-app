@@ -41,7 +41,7 @@ export async function POST(request) {
     const body = await request.json();
     const { no_bon, material_code, nama_pm, qty_kirim, nama_pembuat, password, qty_bon } = body;
 
-    // Validasi nama pengirim
+    // 1. Validasi nama pengirim
     if (!nama_pembuat || nama_pembuat.trim() === "") {
       return new Response(
         JSON.stringify({ success: false, error: "Nama pengirim wajib diisi!" }),
@@ -49,20 +49,33 @@ export async function POST(request) {
       );
     }
 
-    // Cek password di sheet Users kolom B
+    // 2. Validasi input password wajib diisi
+    if (!password || password.trim() === "") {
+      return new Response(
+        JSON.stringify({ success: false, error: "Password Kirim wajib diisi!" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // 3. Cek password di sheet Users KOLOM B (Password Kirim)
     const usersRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: "Users!B2:B1000",
     });
-    const passwords = (usersRes.data.values || []).map((row) => row[0]);
-    if (!passwords.includes(password)) {
+    
+    // Filter baris kosong agar tidak jadi celah keamanan
+    const passwords = (usersRes.data.values || [])
+      .map((row) => row[0])
+      .filter((pass) => pass && pass.trim() !== "");
+
+    if (!passwords.includes(password.trim())) {
       return new Response(
-        JSON.stringify({ success: false, error: "Password salah!" }),
+        JSON.stringify({ success: false, error: "Password Kirim salah!" }),
         { status: 401, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // Hitung total sudah terkirim untuk item ini
+    // 4. Hitung total sudah terkirim untuk item ini
     const kirimRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: "Pengiriman_BON!A2:F10000",
@@ -83,7 +96,7 @@ export async function POST(request) {
       );
     }
 
-    // Generate jam WIB
+    // 5. Generate jam WIB
     const jam_kirim = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
     await sheets.spreadsheets.values.append({

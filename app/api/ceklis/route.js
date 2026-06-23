@@ -39,20 +39,33 @@ export async function POST(request) {
     const body = await request.json();
     const { no_bon, material_code, password } = body;
 
-    // Cek password di sheet Users kolom B
+    // 1. Validasi input password wajib diisi
+    if (!password || password.trim() === "") {
+      return new Response(
+        JSON.stringify({ success: false, error: "Password Ceklis wajib diisi!" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // 2. Cek password di sheet Users KOLOM D (Password Ceklis)
     const usersRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Users!B2:B1000",
+      range: "Users!D2:D1000",
     });
-    const passwords = (usersRes.data.values || []).map((row) => row[0]);
-    if (!passwords.includes(password)) {
+    
+    // Filter baris kosong agar tidak jadi celah keamanan
+    const passwords = (usersRes.data.values || [])
+      .map((row) => row[0])
+      .filter((pass) => pass && pass.trim() !== "");
+
+    if (!passwords.includes(password.trim())) {
       return new Response(
-        JSON.stringify({ success: false, error: "Password salah!" }),
+        JSON.stringify({ success: false, error: "Password Ceklis salah!" }),
         { status: 401, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // Cek apakah item ini sudah diceklis
+    // 3. Cek apakah item ini sudah diceklis
     const ceklisRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: "Ceklis_BON!A2:D10000",
@@ -68,7 +81,8 @@ export async function POST(request) {
       );
     }
 
-    const jam_ceklis = new Date().toLocaleString("id-ID");
+    // 4. Generate waktu WIB Jakarta yang konsisten
+    const jam_ceklis = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,

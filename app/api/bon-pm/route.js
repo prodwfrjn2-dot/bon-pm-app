@@ -36,7 +36,7 @@ export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { no_bon, tanggal, nama_pembuat, shift, line, sku_produk, items } = body;
+    const { no_bon, tanggal, nama_pembuat, shift, line, tujuan, keterangan, sku_produk, items } = body;
 
     const bonRows = items.map((item) => [
       no_bon,
@@ -50,11 +50,13 @@ export async function POST(request) {
       item.nama_pm,
       item.qty_bon,
       item.uom,
+      tujuan,
+      keterangan,
     ]);
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
-      range: "BON_PM!A:K",
+      range: "BON_PM!A:M",
       valueInputOption: "USER_ENTERED",
       requestBody: { values: bonRows },
     });

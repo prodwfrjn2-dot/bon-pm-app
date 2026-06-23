@@ -6,20 +6,41 @@ export async function POST(request) {
     const body = await request.json();
     const { no_bon, material_code, nama_pm, qty_lama, qty_baru, nama_editor, password } = body;
 
-    // Cek password di sheet Users kolom B
+    // 1. Validasi nama editor/revisitor
+    if (!nama_editor || nama_editor.trim() === "") {
+      return new Response(
+        JSON.stringify({ success: false, error: "Nama editor wajib diisi!" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // 2. Validasi input password wajib diisi
+    if (!password || password.trim() === "") {
+      return new Response(
+        JSON.stringify({ success: false, error: "Password Revisi wajib diisi!" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // 3. Cek password di sheet Users KOLOM C (Password Revisi)
     const usersRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Users!B2:B1000",
+      range: "Users!C2:C1000",
     });
-    const passwords = (usersRes.data.values || []).map((row) => row[0]);
-    if (!passwords.includes(password)) {
+    
+    // Filter baris kosong agar tidak jadi celah keamanan
+    const passwords = (usersRes.data.values || [])
+      .map((row) => row[0])
+      .filter((pass) => pass && pass.trim() !== "");
+
+    if (!passwords.includes(password.trim())) {
       return new Response(
-        JSON.stringify({ success: false, error: "Password salah!" }),
+        JSON.stringify({ success: false, error: "Password Revisi salah!" }),
         { status: 401, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    const waktu = new Date().toLocaleString("id-ID");
+    const waktu = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
