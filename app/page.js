@@ -139,6 +139,23 @@ export default function Home() {
     return edits.some((r) => r.nama_pm === nama_pm);
   };
 
+  // === BARU: cek apakah item sudah lunas terkirim (punya jam_kirim & shift) ===
+  // Definisi "sudah dikirim" = total qty terkirim >= qty BON, dan minimal
+  // ada satu baris pengiriman dengan jam_kirim terisi (otomatis diisi backend saat submit).
+  const isTerkunciEdit = (item) => {
+    const riwayat = riwayatKirim[item.no_bon] || [];
+    const kirimanItem = riwayat.filter((r) => r.material_code === item.material_code);
+    if (kirimanItem.length === 0) return false;
+
+    const totalKirim = kirimanItem.reduce((sum, r) => sum + Number(r.qty_kirim || 0), 0);
+    const sudahLunas = totalKirim >= Number(item.qty_bon);
+    const adaJamKirim = kirimanItem.some((r) => r.jam_kirim && r.jam_kirim.trim() !== "");
+
+    // group (shift/line/nama_pembuat) sudah pasti ada karena berasal dari BON_PM,
+    // jadi syarat "ada shiftnya" otomatis terpenuhi selama item punya no_bon yang valid.
+    return sudahLunas && adaJamKirim;
+  };
+
   const handleDivisiChange = (e) => {
     setDivisi(e.target.value);
     setQtyMap({});
@@ -308,6 +325,9 @@ export default function Home() {
   };
 
   const handleOpenEdit = (item) => {
+    // Guard tambahan: kalau item sudah terkunci, jangan buka modal sama sekali
+    if (isTerkunciEdit(item)) return;
+
     setModalEdit({
       no_bon: item.no_bon,
       material_code: item.material_code,
@@ -595,6 +615,7 @@ export default function Home() {
                         const sudahLunas = totalKirim >= Number(item.qty_bon);
                         const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
                         const adaEdit = hasRiwayatEdit(item.no_bon, item.nama_pm);
+                        const terkunci = isTerkunciEdit(item);
                         return (
                           <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
                             <td className="px-2 py-1">{item.nama_pm}</td>
@@ -603,7 +624,18 @@ export default function Home() {
                               <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
                             </td>
                             <td className="px-2 py-1">
-                              <button onClick={() => handleOpenEdit(item)} className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold px-2 py-1 rounded-lg">✏️</button>
+                              <button
+                                onClick={() => handleOpenEdit(item)}
+                                disabled={terkunci}
+                                title={terkunci ? "Sudah dikirim & lunas, QTY tidak bisa diedit lagi" : ""}
+                                className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${
+                                  terkunci
+                                    ? "bg-gray-300 cursor-not-allowed"
+                                    : "bg-yellow-500 hover:bg-yellow-600"
+                                }`}
+                              >
+                                {terkunci ? "🔒" : "✏️"}
+                              </button>
                             </td>
                             <td className="px-2 py-1">
                               <button

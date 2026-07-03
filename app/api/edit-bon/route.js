@@ -27,7 +27,7 @@ export async function POST(request) {
       spreadsheetId: SHEET_ID,
       range: "Users!C2:C1000",
     });
-    
+
     // Filter baris kosong agar tidak jadi celah keamanan
     const passwords = (usersRes.data.values || [])
       .map((row) => row[0])
@@ -37,6 +37,56 @@ export async function POST(request) {
       return new Response(
         JSON.stringify({ success: false, error: "Password Revisi salah!" }),
         { status: 401, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // 4. BARU: Cek apakah item sudah lunas terkirim -> kalau iya, tolak edit
+    //    Ini mencegah bypass lewat API langsung, bukan cuma tombol di UI.
+    const [bonRes, kirimRes] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: "BON_PM!A2:K10000",
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: "Pengiriman_BON!A2:F10000",
+      }),
+    ]);
+
+    const bonRows = bonRes.data.values || [];
+    const bonRow = bonRows.find(
+      (row) => row[0] === no_bon && row[7] === material_code
+    );
+
+    if (!bonRow) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Item tidak ditemukan!" }),
+        { status: 404, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const qtyBonSaatIni = Number(bonRow[9] || 0);
+
+    const kirimRows = kirimRes.data.values || [];
+    const kirimanItem = kirimRows.filter(
+      (row) => row[0] === no_bon && row[1] === material_code
+    );
+    const totalKirim = kirimanItem.reduce(
+      (sum, row) => sum + Number(row[3] || 0),
+      0
+    );
+    const adaJamKirim = kirimanItem.some(
+      (row) => row[4] && String(row[4]).trim() !== ""
+    );
+    const sudahLunas = totalKirim >= qtyBonSaatIni && qtyBonSaatIni > 0;
+
+    if (sudahLunas && adaJamKirim) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "BON ini sudah dikirim lunas, QTY tidak bisa diedit lagi!",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -52,16 +102,10 @@ export async function POST(request) {
     });
 
     // Update qty di sheet BON_PM
-    const bonRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: "BON_PM!A2:K10000",
-    });
-
-    const rows = bonRes.data.values || [];
     const startRow = 2;
     const updates = [];
 
-    rows.forEach((row, i) => {
+    bonRows.forEach((row, i) => {
       if (row[0] === no_bon && row[7] === material_code) {
         const rowNum = startRow + i;
         updates.push({
