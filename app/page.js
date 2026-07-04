@@ -1,6 +1,20 @@
 "use client";
 import { useState, useEffect } from "react";
 
+// Cek apakah tanggal BON (format DD/MM/YYYY) sama dengan hari ini (WIB).
+// Dipakai HANYA untuk membatasi Revisi (edit-bon). Tidak ada batas jam sama
+// sekali di BON PM — Catat Pengiriman & input BON baru tetap bebas.
+function isHariIniClient(tanggalBonId) {
+  const now = new Date();
+  const tanggalSekarangISO = now.toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+  if (!tanggalBonId) return false;
+  const parts = tanggalBonId.split("/");
+  if (parts.length !== 3) return false;
+  const [d, m, y] = parts;
+  const tanggalBonISO = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  return tanggalBonISO === tanggalSekarangISO;
+}
+
 export default function Home() {
   const [divisi, setDivisi] = useState("");
   const [produkList, setProdukList] = useState([]);
@@ -139,10 +153,10 @@ export default function Home() {
     return edits.some((r) => r.nama_pm === nama_pm);
   };
 
-  // === BARU: cek apakah item sudah lunas terkirim (punya jam_kirim & shift) ===
-  // Definisi "sudah dikirim" = total qty terkirim >= qty BON, dan minimal
-  // ada satu baris pengiriman dengan jam_kirim terisi (otomatis diisi backend saat submit).
-  const isTerkunciEdit = (item) => {
+  // Definisi "sudah lunas" = total qty terkirim >= qty BON, dan minimal ada
+  // satu baris pengiriman dengan jam_kirim terisi (otomatis diisi backend
+  // saat submit). Item yang sudah lunas -> FULL LOCK, tidak bisa diedit.
+  const isSudahLunas = (item) => {
     const riwayat = riwayatKirim[item.no_bon] || [];
     const kirimanItem = riwayat.filter((r) => r.material_code === item.material_code);
     if (kirimanItem.length === 0) return false;
@@ -151,9 +165,17 @@ export default function Home() {
     const sudahLunas = totalKirim >= Number(item.qty_bon);
     const adaJamKirim = kirimanItem.some((r) => r.jam_kirim && r.jam_kirim.trim() !== "");
 
-    // group (shift/line/nama_pembuat) sudah pasti ada karena berasal dari BON_PM,
-    // jadi syarat "ada shiftnya" otomatis terpenuhi selama item punya no_bon yang valid.
     return sudahLunas && adaJamKirim;
+  };
+
+  // Revisi (edit) hanya boleh: (1) item belum lunas terkirim, DAN
+  // (2) tanggal BON adalah hari ini (WIB). Kalau item belum lunas tapi
+  // sudah ada sebagian kirim, edit tetap boleh — hanya nilai qty barunya
+  // yang dibatasi (lihat handleEdit) supaya tidak kurang dari total kirim.
+  const isTerkunciEdit = (item) => {
+    if (isSudahLunas(item)) return true;
+    if (!isHariIniClient(item.tanggal)) return true;
+    return false;
   };
 
   const handleDivisiChange = (e) => {
@@ -325,7 +347,8 @@ export default function Home() {
   };
 
   const handleOpenEdit = (item) => {
-    // Guard tambahan: kalau item sudah terkunci, jangan buka modal sama sekali
+    // Guard tambahan: kalau item sudah lunas ATAU sudah lewat hari, jangan
+    // buka modal sama sekali.
     if (isTerkunciEdit(item)) return;
 
     setModalEdit({
@@ -347,6 +370,15 @@ export default function Home() {
     if (!passwordEdit) { setEditPesan("⚠️ Password wajib diisi!"); return; }
     if (!qtyEdit || Number(qtyEdit) < 0) { setEditPesan("⚠️ Masukkan qty yang valid!"); return; }
     if (Number(qtyEdit) === Number(modalEdit.qty_bon)) { setEditPesan("⚠️ Qty sama, tidak ada perubahan!"); return; }
+
+    // Kalau item ini sudah ada sebagian terkirim (belum lunas), qty baru
+    // tidak boleh lebih kecil dari total yang sudah dikirim.
+    const totalSudahKirim = getTotalKirim(modalEdit.no_bon, modalEdit.material_code);
+    if (totalSudahKirim > 0 && Number(qtyEdit) < totalSudahKirim) {
+      setEditPesan(`⚠️ Qty tidak boleh kurang dari jumlah yang sudah dikirim (${totalSudahKirim} ${modalEdit.uom}).`);
+      return;
+    }
+
     setEditLoading(true); setEditPesan("");
     const res = await fetch("/api/edit-bon", {
       method: "POST",
@@ -616,6 +648,12 @@ export default function Home() {
                         const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
                         const adaEdit = hasRiwayatEdit(item.no_bon, item.nama_pm);
                         const terkunci = isTerkunciEdit(item);
+                        const lunasTotal = isSudahLunas(item);
+                        const judulKunci = lunasTotal
+                          ? "Sudah dikirim & lunas, QTY tidak bisa diedit lagi"
+                          : !isHariIniClient(item.tanggal)
+                          ? "Sudah lewat hari, revisi hanya berlaku di hari yang sama dengan tanggal BON"
+                          : "";
                         return (
                           <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
                             <td className="px-2 py-1">{item.nama_pm}</td>
@@ -627,7 +665,7 @@ export default function Home() {
                               <button
                                 onClick={() => handleOpenEdit(item)}
                                 disabled={terkunci}
-                                title={terkunci ? "Sudah dikirim & lunas, QTY tidak bisa diedit lagi" : ""}
+                                title={judulKunci}
                                 className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${
                                   terkunci
                                     ? "bg-gray-300 cursor-not-allowed"
@@ -673,6 +711,12 @@ export default function Home() {
             <p className="text-xs text-gray-500 mb-1">No BON: {modalEdit.no_bon}</p>
             <p className="text-sm font-medium mb-4">{modalEdit.nama_pm}</p>
 
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              <p className="text-[11px] text-amber-700">
+                Revisi hanya berlaku pada hari yang sama dengan tanggal BON. Qty boleh diubah bebas, asal tidak kurang dari jumlah yang sudah dikirim.
+              </p>
+            </div>
+
             {(riwayatEdit[modalEdit.no_bon] || []).filter((r) => r.nama_pm === modalEdit.nama_pm).length > 0 && (
               <div className="mb-4 bg-gray-50 rounded-lg p-3">
                 <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Perubahan:</p>
@@ -699,6 +743,11 @@ export default function Home() {
               <div>
                 <label className="block text-sm font-medium mb-1">QTY Baru ({modalEdit.uom}) — saat ini: {modalEdit.qty_bon}</label>
                 <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan qty baru" value={qtyEdit} onChange={(e) => setQtyEdit(e.target.value)} />
+                {getTotalKirim(modalEdit.no_bon, modalEdit.material_code) > 0 && (
+                  <p className="text-[11px] text-indigo-600 mt-1">
+                    ℹ️ Sudah dikirim {getTotalKirim(modalEdit.no_bon, modalEdit.material_code)} {modalEdit.uom} — qty baru tidak boleh kurang dari ini.
+                  </p>
+                )}
               </div>
             </div>
 
