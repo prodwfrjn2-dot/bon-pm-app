@@ -314,6 +314,7 @@ export default function Home() {
       material_code: item.material_code,
       nama_pm: item.nama_pm,
       nama_pembuat: group.nama_pembuat,
+      shift: group.shift,
       qty_bon: item.qty_bon,
       uom: item.uom,
     });
@@ -796,7 +797,9 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-bold mb-1">🚚 Catat Pengiriman</h3>
-            <p className="text-xs text-gray-500 mb-1">No BON: {modalKirim.no_bon}</p>
+            <p className="text-xs text-gray-500 mb-1">
+              No BON: {modalKirim.no_bon} {modalKirim.shift && <span className="text-indigo-500 font-medium">· {modalKirim.shift}</span>}
+            </p>
             <p className="text-sm font-medium mb-1">{modalKirim.nama_pm}</p>
 
             {/* Notifikasi jika ada edit */}
@@ -815,7 +818,14 @@ export default function Home() {
                 <div className="space-y-1">
                   {(riwayatKirim[modalKirim.no_bon] || []).filter((r) => r.material_code === modalKirim.material_code).map((r, i) => (
                     <div key={i} className="flex justify-between text-xs text-gray-600">
-                      <span>• {r.qty_kirim} {modalKirim.uom} — {r.nama_pembuat}</span>
+                      <span>
+                        • {r.qty_kirim} {modalKirim.uom} — {r.nama_pembuat}
+                        {modalKirim.shift && (
+                          <span className="ml-1 inline-block bg-indigo-100 text-indigo-700 rounded px-1.5 text-[10px] font-semibold align-middle">
+                            {modalKirim.shift}
+                          </span>
+                        )}
+                      </span>
                       <span className="text-gray-400">{r.jam_kirim}</span>
                     </div>
                   ))}
