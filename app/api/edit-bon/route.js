@@ -1,4 +1,5 @@
 import { getSheets, SHEET_ID } from "@/lib/googleSheets";
+import { validasiBolehRevisiPM } from "@/lib/waktuHelperPM";
 
 export async function POST(request) {
   try {
@@ -40,8 +41,7 @@ export async function POST(request) {
       );
     }
 
-    // 4. BARU: Cek apakah item sudah lunas terkirim -> kalau iya, tolak edit
-    //    Ini mencegah bypass lewat API langsung, bukan cuma tombol di UI.
+    // 4. Ambil data BON & Pengiriman
     const [bonRes, kirimRes] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
@@ -65,7 +65,15 @@ export async function POST(request) {
       );
     }
 
-    const qtyBonSaatIni = Number(bonRow[9] || 0);
+    // 5. Revisi hanya boleh di hari yang sama dengan tanggal BON (tanpa batas jam).
+    const tanggalBon = bonRow[1]; // kolom B = tanggal
+    const cekWaktu = validasiBolehRevisiPM(tanggalBon);
+    if (!cekWaktu.boleh) {
+      return new Response(
+        JSON.stringify({ success: false, error: cekWaktu.alasan }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     const kirimRows = kirimRes.data.values || [];
     const kirimanItem = kirimRows.filter(
@@ -75,16 +83,23 @@ export async function POST(request) {
       (sum, row) => sum + Number(row[3] || 0),
       0
     );
-    const adaJamKirim = kirimanItem.some(
-      (row) => row[4] && String(row[4]).trim() !== ""
-    );
-    const sudahLunas = totalKirim >= qtyBonSaatIni && qtyBonSaatIni > 0;
 
-    if (sudahLunas && adaJamKirim) {
+    // 6. Qty selalu boleh diedit (naik/turun bebas) selama masih hari yang
+    //    sama dengan tanggal BON — TIDAK ADA full-lock walau sudah lunas.
+    //    Satu-satunya batasan: qty baru tidak boleh kurang dari total yang
+    //    sudah tercatat dikirim di Pengiriman_BON.
+    const qtyBaruNum = Number(qty_baru);
+    if (Number.isNaN(qtyBaruNum)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Qty baru harus berupa angka." }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (totalKirim > 0 && qtyBaruNum < totalKirim) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "BON ini sudah dikirim lunas, QTY tidak bisa diedit lagi!",
+          error: `Qty tidak boleh kurang dari jumlah yang sudah dikirim (${totalKirim}).`,
         }),
         { status: 403, headers: { "Content-Type": "application/json" } }
       );

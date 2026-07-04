@@ -1,4 +1,5 @@
 import { getSheets, SHEET_ID } from "@/lib/googleSheets";
+import { getShiftSekarangPM } from "@/lib/waktuHelperPM";
 
 export async function GET(request) {
   try {
@@ -36,7 +37,11 @@ export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { no_bon, tanggal, nama_pembuat, shift, line, tujuan, keterangan, sku_produk, items } = body;
+    const { no_bon, tanggal, nama_pembuat, line, tujuan, keterangan, sku_produk, items } = body;
+
+    // Shift ditentukan otomatis dari jam submit (WIB), bukan dipilih manual
+    // oleh user. Rentang jam berbeda khusus hari Sabtu.
+    const shift = getShiftSekarangPM();
 
     const bonRows = items.map((item) => [
       no_bon,
@@ -70,7 +75,7 @@ export async function POST(request) {
       },
     });
 
-    return new Response(JSON.stringify({ success: true, message: "BON PM berhasil disimpan!" }), {
+    return new Response(JSON.stringify({ success: true, message: "BON PM berhasil disimpan!", shift }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
