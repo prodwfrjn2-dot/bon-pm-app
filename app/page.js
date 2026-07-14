@@ -831,45 +831,47 @@ export default function Home() {
               </select>
             )}
             <div className="border rounded-lg overflow-hidden">
-              <table className="w-full text-xs md:text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="text-left px-2 py-2">Kode</th>
-                    <th className="text-left px-2 py-2">Nama PM</th>
-                    <th className="text-left px-2 py-2">UOM</th>
-                    <th className="text-left px-2 py-2">QTY</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nonTapes.length === 0 && selectedTapes.length === 0 ? (
-                    <tr><td colSpan={4} className="text-center py-4 text-gray-400 text-xs">
-                      {!divisi ? "Pilih divisi terlebih dahulu..." : !selectedSku ? "Silakan pilih produk terlebih dahulu..." : "Memuat data..."}
-                    </td></tr>
-                  ) : (
-                    <>
-                      {nonTapes.map((b) => (
-                        <tr key={b.material_code} className="border-t">
-                          <td className="px-2 py-2 text-xs">{b.material_code}</td>
-                          <td className="px-2 py-2 text-xs">{b.nama_pm}</td>
-                          <td className="px-2 py-2 text-xs">{b.uom}</td>
-                          <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[b.material_code] || ""} onChange={(e) => handleQtyChange(b.material_code, e.target.value)} /></td>
-                        </tr>
-                      ))}
-                      {selectedTapes.map((t) => (
-                        <tr key={t.material_code} className="border-t bg-blue-50">
-                          <td className="px-2 py-2 text-xs">{t.material_code}</td>
-                          <td className="px-2 py-2 text-xs flex items-center gap-1">
-                            <button onClick={() => handleRemoveTape(t.material_code)} className="text-red-400 hover:text-red-600 font-bold text-xs">✕</button>
-                            {t.nama_pm}
-                          </td>
-                          <td className="px-2 py-2 text-xs">{t.uom}</td>
-                          <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={t.qty || ""} onChange={(e) => handleTapeQty(t.material_code, e.target.value)} /></td>
-                        </tr>
-                      ))}
-                    </>
-                  )}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs md:text-sm min-w-[480px]">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="text-left px-2 py-2">Kode</th>
+                      <th className="text-left px-2 py-2">Nama PM</th>
+                      <th className="text-left px-2 py-2">UOM</th>
+                      <th className="text-left px-2 py-2">QTY</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {nonTapes.length === 0 && selectedTapes.length === 0 ? (
+                      <tr><td colSpan={4} className="text-center py-4 text-gray-400 text-xs">
+                        {!divisi ? "Pilih divisi terlebih dahulu..." : !selectedSku ? "Silakan pilih produk terlebih dahulu..." : "Memuat data..."}
+                      </td></tr>
+                    ) : (
+                      <>
+                        {nonTapes.map((b) => (
+                          <tr key={b.material_code} className="border-t">
+                            <td className="px-2 py-2 text-xs">{b.material_code}</td>
+                            <td className="px-2 py-2 text-xs">{b.nama_pm}</td>
+                            <td className="px-2 py-2 text-xs">{b.uom}</td>
+                            <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[b.material_code] || ""} onChange={(e) => handleQtyChange(b.material_code, e.target.value)} /></td>
+                          </tr>
+                        ))}
+                        {selectedTapes.map((t) => (
+                          <tr key={t.material_code} className="border-t bg-blue-50">
+                            <td className="px-2 py-2 text-xs">{t.material_code}</td>
+                            <td className="px-2 py-2 text-xs flex items-center gap-1">
+                              <button onClick={() => handleRemoveTape(t.material_code)} className="text-red-400 hover:text-red-600 font-bold text-xs">✕</button>
+                              {t.nama_pm}
+                            </td>
+                            <td className="px-2 py-2 text-xs">{t.uom}</td>
+                            <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={t.qty || ""} onChange={(e) => handleTapeQty(t.material_code, e.target.value)} /></td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
           {pesan && <div className="mb-3 p-3 rounded-lg bg-blue-50 text-blue-800 font-medium text-sm">{pesan}</div>}
@@ -923,101 +925,106 @@ export default function Home() {
                       ⚠️ Pengiriman belum selesai untuk {getItemBelumSelesai(group).length} item PM: {getItemBelumSelesai(group).map((it) => it.nama_pm).join(", ")}
                     </div>
                   )}
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="text-left px-2 py-1">Nama PM</th>
-                        <th className="text-left px-2 py-1">BON</th>
-                        <th className="text-left px-2 py-1">Krm</th>
-                        <th className="text-left px-2 py-1">✏️</th>
-                        <th className="text-left px-2 py-1">🚚</th>
-                        <th className="text-left px-2 py-1">☑️</th>
-                        <th className="text-left px-2 py-1">✔️</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.items.map((item, i) => {
-                        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
-                        const sudahLunas = totalKirim >= Number(item.qty_bon);
-                        const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
-                        const adaEdit = hasRiwayatEdit(item.no_bon, item.nama_pm);
-                        const terkunci = isTerkunciEdit(item);
-                        const judulKunci = terkunci
-                          ? "Sudah lewat hari, revisi hanya berlaku di hari yang sama dengan tanggal BON"
-                          : "";
-                        const approvalInfo = getApprovalItem(item.no_bon, item.material_code);
-                        return (
-                          <>
-                            <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
-                              <td className="px-2 py-1">{item.nama_pm}</td>
-                              <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
-                              <td className="px-2 py-1">
-                                <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
-                              </td>
-                              <td className="px-2 py-1">
-                                <button
-                                  onClick={() => handleOpenEdit(item)}
-                                  disabled={terkunci}
-                                  title={judulKunci}
-                                  className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${
-                                    terkunci
-                                      ? "bg-gray-300 cursor-not-allowed"
-                                      : "bg-yellow-500 hover:bg-yellow-600"
-                                  }`}
-                                >
-                                  {terkunci ? "🔒" : "✏️"}
-                                </button>
-                              </td>
-                              <td className="px-2 py-1">
-                                <button
-                                  onClick={() => handleOpenKirim(item, group)}
-                                  className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
-                                >
-                                  {adaEdit ? "⚠️🚚" : "🚚"}
-                                </button>
-                              </td>
-                              <td className="px-2 py-1">
-                                {ceklisInfo ? (
-                                  <span className="text-green-600 font-bold text-xs">✅</span>
-                                ) : (
-                                  <button onClick={() => handleOpenCeklis(item)} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg">☑️</button>
-                                )}
-                              </td>
-                              <td className="px-2 py-1">
-                                {!sudahLunas ? (
-                                  <span className="text-gray-300 text-xs" title="Belum lunas terkirim">—</span>
-                                ) : approvalInfo?.status === "Approved" ? (
-                                  <span className="text-green-600 font-bold text-sm" title={`Disetujui oleh ${approvalInfo.nama_approver} · ${approvalInfo.waktu_approval}`}>✓</span>
-                                ) : approvalInfo?.status === "Rejected" ? (
+                  {/* FIX: tabel dibungkus wrapper overflow-x-auto terpisah supaya
+                      bisa di-scroll horizontal di layar sempit (mobile), bukan
+                      terpotong oleh overflow-hidden pada card di atasnya. */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs min-w-[520px]">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="text-left px-2 py-1">Nama PM</th>
+                          <th className="text-left px-2 py-1">BON</th>
+                          <th className="text-left px-2 py-1">Krm</th>
+                          <th className="text-left px-2 py-1">✏️</th>
+                          <th className="text-left px-2 py-1">🚚</th>
+                          <th className="text-left px-2 py-1">☑️</th>
+                          <th className="text-left px-2 py-1">✔️</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map((item, i) => {
+                          const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+                          const sudahLunas = totalKirim >= Number(item.qty_bon);
+                          const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
+                          const adaEdit = hasRiwayatEdit(item.no_bon, item.nama_pm);
+                          const terkunci = isTerkunciEdit(item);
+                          const judulKunci = terkunci
+                            ? "Sudah lewat hari, revisi hanya berlaku di hari yang sama dengan tanggal BON"
+                            : "";
+                          const approvalInfo = getApprovalItem(item.no_bon, item.material_code);
+                          return (
+                            <>
+                              <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
+                                <td className="px-2 py-1">{item.nama_pm}</td>
+                                <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
+                                <td className="px-2 py-1">
+                                  <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
+                                </td>
+                                <td className="px-2 py-1">
                                   <button
-                                    onClick={() => handleOpenApproval(item)}
-                                    className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse"
-                                    title={`Ditolak: ${approvalInfo.alasan_reject}`}
+                                    onClick={() => handleOpenEdit(item)}
+                                    disabled={terkunci}
+                                    title={judulKunci}
+                                    className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${
+                                      terkunci
+                                        ? "bg-gray-300 cursor-not-allowed"
+                                        : "bg-yellow-500 hover:bg-yellow-600"
+                                    }`}
                                   >
-                                    ✗
+                                    {terkunci ? "🔒" : "✏️"}
                                   </button>
-                                ) : (
+                                </td>
+                                <td className="px-2 py-1">
                                   <button
-                                    onClick={() => handleOpenApproval(item)}
-                                    className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg"
+                                    onClick={() => handleOpenKirim(item, group)}
+                                    className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
                                   >
-                                    ✓/✗
+                                    {adaEdit ? "⚠️🚚" : "🚚"}
                                   </button>
-                                )}
-                              </td>
-                            </tr>
-                            {approvalInfo?.status === "Rejected" && (
-                              <tr key={`${i}-rejected`} className="bg-red-50">
-                                <td colSpan={7} className="px-2 py-1 text-[11px] text-red-700">
-                                  ✗ <b>Ditolak Pengawas ({approvalInfo.nama_approver}):</b> {approvalInfo.alasan_reject} — mohon segera diperbaiki oleh pembuat/pengirim BON.
+                                </td>
+                                <td className="px-2 py-1">
+                                  {ceklisInfo ? (
+                                    <span className="text-green-600 font-bold text-xs">✅</span>
+                                  ) : (
+                                    <button onClick={() => handleOpenCeklis(item)} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg">☑️</button>
+                                  )}
+                                </td>
+                                <td className="px-2 py-1">
+                                  {!sudahLunas ? (
+                                    <span className="text-gray-300 text-xs" title="Belum lunas terkirim">—</span>
+                                  ) : approvalInfo?.status === "Approved" ? (
+                                    <span className="text-green-600 font-bold text-sm" title={`Disetujui oleh ${approvalInfo.nama_approver} · ${approvalInfo.waktu_approval}`}>✓</span>
+                                  ) : approvalInfo?.status === "Rejected" ? (
+                                    <button
+                                      onClick={() => handleOpenApproval(item)}
+                                      className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse"
+                                      title={`Ditolak: ${approvalInfo.alasan_reject}`}
+                                    >
+                                      ✗
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleOpenApproval(item)}
+                                      className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg"
+                                    >
+                                      ✓/✗
+                                    </button>
+                                  )}
                                 </td>
                               </tr>
-                            )}
-                          </>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              {approvalInfo?.status === "Rejected" && (
+                                <tr key={`${i}-rejected`} className="bg-red-50">
+                                  <td colSpan={7} className="px-2 py-1 text-[11px] text-red-700">
+                                    ✗ <b>Ditolak Pengawas ({approvalInfo.nama_approver}):</b> {approvalInfo.alasan_reject} — mohon segera diperbaiki oleh pembuat/pengirim BON.
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ))}
             </div>
