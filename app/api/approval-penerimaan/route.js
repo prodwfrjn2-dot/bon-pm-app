@@ -64,7 +64,7 @@ export async function POST(request) {
     // 3. Validasi nama approver wajib diisi
     if (!nama_approver || nama_approver.trim() === "") {
       return new Response(
-        JSON.stringify({ success: false, error: "Nama Supervisor wajib diisi!" }),
+        JSON.stringify({ success: false, error: "Nama Pengawas wajib diisi!" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }

@@ -93,7 +93,7 @@ export default function Home() {
   const [editPesan, setEditPesan] = useState("");
   const [riwayatEdit, setRiwayatEdit] = useState({});
 
-  // ==== State untuk Approval Penerimaan (Supervisor) ====
+  // ==== State untuk Approval Penerimaan (Pengawas) ====
   const [statusApproval, setStatusApproval] = useState({}); // { no_bon: [ {material_code, status, alasan_reject, nama_approver, waktu_approval} ] }
   const [modalApproval, setModalApproval] = useState(null); // item yang sedang diproses approve/reject
   const [aksiApproval, setAksiApproval] = useState("Approved"); // "Approved" | "Rejected"
@@ -231,6 +231,16 @@ export default function Home() {
   // yang sudah dikirim (divalidasi di handleEdit & backend).
   const isTerkunciEdit = (item) => {
     return !isHariIniClient(item.tanggal);
+  };
+
+  // Cek apakah suatu grup BON (satu shift/line/pembuat) punya item yang
+  // pengirimannya belum selesai (qty terkirim < qty BON). Dipakai untuk
+  // menampilkan banner peringatan di atas grup pada tabel History.
+  const getItemBelumSelesai = (group) => {
+    return group.items.filter((item) => {
+      const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+      return totalKirim < Number(item.qty_bon);
+    });
   };
 
   const handleDivisiChange = (e) => {
@@ -461,7 +471,7 @@ export default function Home() {
     }
   };
 
-  // ==== Approval Penerimaan (Supervisor) ====
+  // ==== Approval Penerimaan (Pengawas) ====
   // Dibuka dari tombol pada item yang sudah lunas (qty terkirim >= qty bon).
   // aksi default "Approved"; user bisa ganti ke "Rejected" di dalam modal.
   const handleOpenApproval = (item) => {
@@ -485,7 +495,7 @@ export default function Home() {
   };
 
   const handleApproval = async () => {
-    if (!namaApprover.trim()) { setApprovalPesan("⚠️ Nama Supervisor wajib diisi!"); return; }
+    if (!namaApprover.trim()) { setApprovalPesan("⚠️ Nama Pengawas wajib diisi!"); return; }
     if (!passwordApproval) { setApprovalPesan("⚠️ Password wajib diisi!"); return; }
     if (aksiApproval === "Rejected" && !alasanReject.trim()) {
       setApprovalPesan("⚠️ Alasan penolakan wajib diisi!");
@@ -511,7 +521,7 @@ export default function Home() {
       setApprovalPesan(
         aksiApproval === "Approved"
           ? `✅ Penerimaan disetujui pada ${data.waktu_approval}`
-          : `🚫 Penerimaan ditolak. Notifikasi dikirim ke pembuat/pengirim BON.`
+          : `✗ Penerimaan ditolak. Notifikasi dikirim ke pembuat/pengirim BON.`
       );
       fetchStatusApproval(modalApproval.no_bon);
       setTimeout(() => {
@@ -731,7 +741,7 @@ export default function Home() {
               <div class="ttd-line">${group.nama_pembuat || ""}</div>
             </div>
             <div class="ttd-box">
-              <div class="ttd-label">TTD Penerima (Supervisor)</div>
+              <div class="ttd-label">TTD Penerima (Pengawas)</div>
               <div class="ttd-line">&nbsp;</div>
             </div>
           </div>
@@ -908,6 +918,11 @@ export default function Home() {
                     <span>{group.tanggal}</span>
                   </div>
                   <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{group.nama_produk}</div>
+                  {getItemBelumSelesai(group).length > 0 && (
+                    <div className="px-3 py-2 bg-amber-50 border-y border-amber-200 text-xs text-amber-800 font-medium">
+                      ⚠️ Pengiriman belum selesai untuk {getItemBelumSelesai(group).length} item PM: {getItemBelumSelesai(group).map((it) => it.nama_pm).join(", ")}
+                    </div>
+                  )}
                   <table className="w-full text-xs">
                     <thead className="bg-gray-100">
                       <tr>
@@ -917,7 +932,7 @@ export default function Home() {
                         <th className="text-left px-2 py-1">✏️</th>
                         <th className="text-left px-2 py-1">🚚</th>
                         <th className="text-left px-2 py-1">☑️</th>
-                        <th className="text-left px-2 py-1">👔</th>
+                        <th className="text-left px-2 py-1">✔️</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -972,21 +987,21 @@ export default function Home() {
                                 {!sudahLunas ? (
                                   <span className="text-gray-300 text-xs" title="Belum lunas terkirim">—</span>
                                 ) : approvalInfo?.status === "Approved" ? (
-                                  <span className="text-green-600 font-bold text-xs" title={`Disetujui oleh ${approvalInfo.nama_approver} · ${approvalInfo.waktu_approval}`}>👔✅</span>
+                                  <span className="text-green-600 font-bold text-sm" title={`Disetujui oleh ${approvalInfo.nama_approver} · ${approvalInfo.waktu_approval}`}>✓</span>
                                 ) : approvalInfo?.status === "Rejected" ? (
                                   <button
                                     onClick={() => handleOpenApproval(item)}
                                     className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse"
                                     title={`Ditolak: ${approvalInfo.alasan_reject}`}
                                   >
-                                    🚫
+                                    ✗
                                   </button>
                                 ) : (
                                   <button
                                     onClick={() => handleOpenApproval(item)}
                                     className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg"
                                   >
-                                    👔
+                                    ✓/✗
                                   </button>
                                 )}
                               </td>
@@ -994,7 +1009,7 @@ export default function Home() {
                             {approvalInfo?.status === "Rejected" && (
                               <tr key={`${i}-rejected`} className="bg-red-50">
                                 <td colSpan={7} className="px-2 py-1 text-[11px] text-red-700">
-                                  🚫 <b>Ditolak Supervisor ({approvalInfo.nama_approver}):</b> {approvalInfo.alasan_reject} — mohon segera diperbaiki oleh pembuat/pengirim BON.
+                                  ✗ <b>Ditolak Pengawas ({approvalInfo.nama_approver}):</b> {approvalInfo.alasan_reject} — mohon segera diperbaiki oleh pembuat/pengirim BON.
                                 </td>
                               </tr>
                             )}
@@ -1159,11 +1174,11 @@ export default function Home() {
         </div>
       )}
 
-      {/* Modal Approval Penerimaan (Supervisor) */}
+      {/* Modal Approval Penerimaan (Pengawas) */}
       {modalApproval && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-1">👔 Approval Penerimaan PM</h3>
+            <h3 className="text-lg font-bold mb-1">✔️ Approval Penerimaan PM</h3>
             <p className="text-xs text-gray-500 mb-1">No BON: {modalApproval.no_bon}</p>
             <p className="text-sm font-medium mb-4">{modalApproval.nama_pm}</p>
 
@@ -1181,7 +1196,7 @@ export default function Home() {
                     : "bg-white text-gray-500 border-gray-300"
                 }`}
               >
-                ✅ Setujui
+                ✓ Setujui
               </button>
               <button
                 onClick={() => setAksiApproval("Rejected")}
@@ -1191,13 +1206,13 @@ export default function Home() {
                     : "bg-white text-gray-500 border-gray-300"
                 }`}
               >
-                🚫 Tolak
+                ✗ Tolak
               </button>
             </div>
 
             <div className="space-y-3 mb-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Nama Supervisor</label>
+                <label className="block text-sm font-medium mb-1">Nama Pengawas</label>
                 <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaApprover} onChange={(e) => setNamaApprover(e.target.value)} />
               </div>
               <div>
@@ -1233,7 +1248,7 @@ export default function Home() {
                   aksiApproval === "Approved" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"
                 }`}
               >
-                {approvalLoading ? "Menyimpan..." : aksiApproval === "Approved" ? "✅ Konfirmasi Setuju" : "🚫 Konfirmasi Tolak"}
+                {approvalLoading ? "Menyimpan..." : aksiApproval === "Approved" ? "✓ Konfirmasi Setuju" : "✗ Konfirmasi Tolak"}
               </button>
             </div>
           </div>
