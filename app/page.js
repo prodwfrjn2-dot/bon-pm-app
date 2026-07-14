@@ -93,6 +93,16 @@ export default function Home() {
   const [editPesan, setEditPesan] = useState("");
   const [riwayatEdit, setRiwayatEdit] = useState({});
 
+  // ==== State untuk Approval Penerimaan (Supervisor) ====
+  const [statusApproval, setStatusApproval] = useState({}); // { no_bon: [ {material_code, status, alasan_reject, nama_approver, waktu_approval} ] }
+  const [modalApproval, setModalApproval] = useState(null); // item yang sedang diproses approve/reject
+  const [aksiApproval, setAksiApproval] = useState("Approved"); // "Approved" | "Rejected"
+  const [namaApprover, setNamaApprover] = useState("");
+  const [passwordApproval, setPasswordApproval] = useState("");
+  const [alasanReject, setAlasanReject] = useState("");
+  const [approvalLoading, setApprovalLoading] = useState(false);
+  const [approvalPesan, setApprovalPesan] = useState("");
+
   useEffect(() => {
     if (!divisi) {
       setProdukList([]);
@@ -138,6 +148,7 @@ export default function Home() {
       fetchRiwayatKirim(no_bon);
       fetchStatusCeklis(no_bon);
       fetchRiwayatEdit(no_bon);
+      fetchStatusApproval(no_bon);
     });
   };
 
@@ -157,6 +168,12 @@ export default function Home() {
     const res = await fetch(`/api/edit-bon?no_bon=${no_bon}`);
     const data = await res.json();
     setRiwayatEdit((prev) => ({ ...prev, [no_bon]: data.data || [] }));
+  };
+
+  const fetchStatusApproval = async (no_bon) => {
+    const res = await fetch(`/api/approval-penerimaan?no_bon=${no_bon}`);
+    const data = await res.json();
+    setStatusApproval((prev) => ({ ...prev, [no_bon]: data.data || [] }));
   };
 
   const isSudahCeklis = (no_bon, material_code) => {
@@ -185,6 +202,12 @@ export default function Home() {
   const hasRiwayatEdit = (no_bon, nama_pm) => {
     const edits = riwayatEdit[no_bon] || [];
     return edits.some((r) => r.nama_pm === nama_pm);
+  };
+
+  // Ambil record approval (kalau ada) untuk satu item PM.
+  const getApprovalItem = (no_bon, material_code) => {
+    const list = statusApproval[no_bon] || [];
+    return list.find((a) => a.material_code === material_code);
   };
 
   // Definisi "sudah lunas" hanya dipakai untuk INFO tampilan (badge hijau di
@@ -438,6 +461,68 @@ export default function Home() {
     }
   };
 
+  // ==== Approval Penerimaan (Supervisor) ====
+  // Dibuka dari tombol pada item yang sudah lunas (qty terkirim >= qty bon).
+  // aksi default "Approved"; user bisa ganti ke "Rejected" di dalam modal.
+  const handleOpenApproval = (item) => {
+    if (!isSudahLunas(item)) return; // guard: hanya item yang sudah lunas terkirim
+    const existing = getApprovalItem(item.no_bon, item.material_code);
+    if (existing && existing.status === "Approved") return; // sudah final, tidak bisa dibuka lagi
+
+    setModalApproval({
+      no_bon: item.no_bon,
+      material_code: item.material_code,
+      nama_pm: item.nama_pm,
+      qty_bon: item.qty_bon,
+      uom: item.uom,
+    });
+    setAksiApproval("Approved");
+    setNamaApprover("");
+    setPasswordApproval("");
+    setAlasanReject("");
+    setApprovalPesan("");
+    fetchStatusApproval(item.no_bon);
+  };
+
+  const handleApproval = async () => {
+    if (!namaApprover.trim()) { setApprovalPesan("⚠️ Nama Supervisor wajib diisi!"); return; }
+    if (!passwordApproval) { setApprovalPesan("⚠️ Password wajib diisi!"); return; }
+    if (aksiApproval === "Rejected" && !alasanReject.trim()) {
+      setApprovalPesan("⚠️ Alasan penolakan wajib diisi!");
+      return;
+    }
+
+    setApprovalLoading(true); setApprovalPesan("");
+    const res = await fetch("/api/approval-penerimaan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        no_bon: modalApproval.no_bon,
+        material_code: modalApproval.material_code,
+        status: aksiApproval,
+        alasan_reject: alasanReject,
+        nama_approver: namaApprover,
+        password: passwordApproval,
+      }),
+    });
+    const data = await res.json();
+    setApprovalLoading(false);
+    if (data.success) {
+      setApprovalPesan(
+        aksiApproval === "Approved"
+          ? `✅ Penerimaan disetujui pada ${data.waktu_approval}`
+          : `🚫 Penerimaan ditolak. Notifikasi dikirim ke pembuat/pengirim BON.`
+      );
+      fetchStatusApproval(modalApproval.no_bon);
+      setTimeout(() => {
+        setModalApproval(null); setNamaApprover(""); setPasswordApproval("");
+        setAlasanReject(""); setApprovalPesan(""); setAksiApproval("Approved");
+      }, 1800);
+    } else {
+      setApprovalPesan("❌ " + data.error);
+    }
+  };
+
   // Laporan PDF dicetak dalam format potrait A4, rapi untuk arsip fisik:
   // margin standar, tabel per-BON dengan keterangan shift + rentang jam,
   // dan 2 kolom tanda tangan (Pembuat & Penerima) di setiap grup.
@@ -547,6 +632,7 @@ export default function Home() {
           }
           .ok { color: #16a34a; font-weight: bold; }
           .kurang { color: #ea580c; }
+          .rejected { color: #dc2626; font-weight: bold; }
           .ttd-wrap {
             display: flex;
             border-top: 1px solid #e5e7eb;
@@ -599,12 +685,13 @@ export default function Home() {
           <table class="item-table">
             <thead>
               <tr>
-                <th style="width:34%">Nama PM</th>
-                <th style="width:14%">QTY BON</th>
-                <th style="width:10%">UOM</th>
-                <th style="width:14%">Terkirim</th>
-                <th style="width:14%">Status</th>
-                <th style="width:14%">Sistem</th>
+                <th style="width:28%">Nama PM</th>
+                <th style="width:12%">QTY BON</th>
+                <th style="width:8%">UOM</th>
+                <th style="width:12%">Terkirim</th>
+                <th style="width:12%">Status</th>
+                <th style="width:12%">Sistem</th>
+                <th style="width:16%">Approval</th>
               </tr>
             </thead>
             <tbody>
@@ -613,6 +700,16 @@ export default function Home() {
         const totalKirim = getTotalKirim(item.no_bon, item.material_code);
         const sudahLunas = totalKirim >= Number(item.qty_bon);
         const sudahCeklis = isSudahCeklis(item.no_bon, item.material_code);
+        const approvalItem = getApprovalItem(item.no_bon, item.material_code);
+        let approvalLabel = "-";
+        let approvalClass = "kurang";
+        if (approvalItem?.status === "Approved") {
+          approvalLabel = "✓ Disetujui";
+          approvalClass = "ok";
+        } else if (approvalItem?.status === "Rejected") {
+          approvalLabel = "✗ Ditolak";
+          approvalClass = "rejected";
+        }
         html += `
               <tr>
                 <td>${item.nama_pm}</td>
@@ -621,6 +718,7 @@ export default function Home() {
                 <td class="${sudahLunas ? "ok" : "kurang"}">${totalKirim}</td>
                 <td class="${sudahLunas ? "ok" : "kurang"}">${sudahLunas ? "✓ Lunas" : "Belum Lunas"}</td>
                 <td class="${sudahCeklis ? "ok" : "kurang"}">${sudahCeklis ? "✓ Sudah" : "Belum"}</td>
+                <td class="${approvalClass}">${approvalLabel}</td>
               </tr>
         `;
       });
@@ -633,7 +731,7 @@ export default function Home() {
               <div class="ttd-line">${group.nama_pembuat || ""}</div>
             </div>
             <div class="ttd-box">
-              <div class="ttd-label">TTD Penerima</div>
+              <div class="ttd-label">TTD Penerima (Supervisor)</div>
               <div class="ttd-line">&nbsp;</div>
             </div>
           </div>
@@ -819,6 +917,7 @@ export default function Home() {
                         <th className="text-left px-2 py-1">✏️</th>
                         <th className="text-left px-2 py-1">🚚</th>
                         <th className="text-left px-2 py-1">☑️</th>
+                        <th className="text-left px-2 py-1">👔</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -831,43 +930,75 @@ export default function Home() {
                         const judulKunci = terkunci
                           ? "Sudah lewat hari, revisi hanya berlaku di hari yang sama dengan tanggal BON"
                           : "";
+                        const approvalInfo = getApprovalItem(item.no_bon, item.material_code);
                         return (
-                          <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
-                            <td className="px-2 py-1">{item.nama_pm}</td>
-                            <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
-                            <td className="px-2 py-1">
-                              <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
-                            </td>
-                            <td className="px-2 py-1">
-                              <button
-                                onClick={() => handleOpenEdit(item)}
-                                disabled={terkunci}
-                                title={judulKunci}
-                                className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${
-                                  terkunci
-                                    ? "bg-gray-300 cursor-not-allowed"
-                                    : "bg-yellow-500 hover:bg-yellow-600"
-                                }`}
-                              >
-                                {terkunci ? "🔒" : "✏️"}
-                              </button>
-                            </td>
-                            <td className="px-2 py-1">
-                              <button
-                                onClick={() => handleOpenKirim(item, group)}
-                                className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
-                              >
-                                {adaEdit ? "⚠️🚚" : "🚚"}
-                              </button>
-                            </td>
-                            <td className="px-2 py-1">
-                              {ceklisInfo ? (
-                                <span className="text-green-600 font-bold text-xs">✅</span>
-                              ) : (
-                                <button onClick={() => handleOpenCeklis(item)} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg">☑️</button>
-                              )}
-                            </td>
-                          </tr>
+                          <>
+                            <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
+                              <td className="px-2 py-1">{item.nama_pm}</td>
+                              <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
+                              <td className="px-2 py-1">
+                                <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
+                              </td>
+                              <td className="px-2 py-1">
+                                <button
+                                  onClick={() => handleOpenEdit(item)}
+                                  disabled={terkunci}
+                                  title={judulKunci}
+                                  className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${
+                                    terkunci
+                                      ? "bg-gray-300 cursor-not-allowed"
+                                      : "bg-yellow-500 hover:bg-yellow-600"
+                                  }`}
+                                >
+                                  {terkunci ? "🔒" : "✏️"}
+                                </button>
+                              </td>
+                              <td className="px-2 py-1">
+                                <button
+                                  onClick={() => handleOpenKirim(item, group)}
+                                  className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
+                                >
+                                  {adaEdit ? "⚠️🚚" : "🚚"}
+                                </button>
+                              </td>
+                              <td className="px-2 py-1">
+                                {ceklisInfo ? (
+                                  <span className="text-green-600 font-bold text-xs">✅</span>
+                                ) : (
+                                  <button onClick={() => handleOpenCeklis(item)} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg">☑️</button>
+                                )}
+                              </td>
+                              <td className="px-2 py-1">
+                                {!sudahLunas ? (
+                                  <span className="text-gray-300 text-xs" title="Belum lunas terkirim">—</span>
+                                ) : approvalInfo?.status === "Approved" ? (
+                                  <span className="text-green-600 font-bold text-xs" title={`Disetujui oleh ${approvalInfo.nama_approver} · ${approvalInfo.waktu_approval}`}>👔✅</span>
+                                ) : approvalInfo?.status === "Rejected" ? (
+                                  <button
+                                    onClick={() => handleOpenApproval(item)}
+                                    className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse"
+                                    title={`Ditolak: ${approvalInfo.alasan_reject}`}
+                                  >
+                                    🚫
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleOpenApproval(item)}
+                                    className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg"
+                                  >
+                                    👔
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                            {approvalInfo?.status === "Rejected" && (
+                              <tr key={`${i}-rejected`} className="bg-red-50">
+                                <td colSpan={7} className="px-2 py-1 text-[11px] text-red-700">
+                                  🚫 <b>Ditolak Supervisor ({approvalInfo.nama_approver}):</b> {approvalInfo.alasan_reject} — mohon segera diperbaiki oleh pembuat/pengirim BON.
+                                </td>
+                              </tr>
+                            )}
+                          </>
                         );
                       })}
                     </tbody>
@@ -1022,6 +1153,87 @@ export default function Home() {
               <button onClick={() => { setModalCeklis(null); setPasswordCeklis(""); setCeklisPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
               <button onClick={handleCeklis} disabled={ceklisLoading} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-2 text-sm">
                 {ceklisLoading ? "Menyimpan..." : "✅ Konfirmasi"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Approval Penerimaan (Supervisor) */}
+      {modalApproval && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-1">👔 Approval Penerimaan PM</h3>
+            <p className="text-xs text-gray-500 mb-1">No BON: {modalApproval.no_bon}</p>
+            <p className="text-sm font-medium mb-4">{modalApproval.nama_pm}</p>
+
+            <p className="text-xs text-gray-500 mb-4">
+              QTY BON: {modalApproval.qty_bon} {modalApproval.uom} · Total terkirim: {getTotalKirim(modalApproval.no_bon, modalApproval.material_code)} {modalApproval.uom}
+            </p>
+
+            {/* Toggle Approve / Reject */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setAksiApproval("Approved")}
+                className={`flex-1 rounded-xl py-2 text-sm font-bold border ${
+                  aksiApproval === "Approved"
+                    ? "bg-green-600 text-white border-green-600"
+                    : "bg-white text-gray-500 border-gray-300"
+                }`}
+              >
+                ✅ Setujui
+              </button>
+              <button
+                onClick={() => setAksiApproval("Rejected")}
+                className={`flex-1 rounded-xl py-2 text-sm font-bold border ${
+                  aksiApproval === "Rejected"
+                    ? "bg-red-600 text-white border-red-600"
+                    : "bg-white text-gray-500 border-gray-300"
+                }`}
+              >
+                🚫 Tolak
+              </button>
+            </div>
+
+            <div className="space-y-3 mb-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama Supervisor</label>
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaApprover} onChange={(e) => setNamaApprover(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Password</label>
+                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan password" value={passwordApproval} onChange={(e) => setPasswordApproval(e.target.value)} />
+              </div>
+              {aksiApproval === "Rejected" && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Alasan Penolakan</label>
+                  <textarea
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    rows={3}
+                    placeholder="Contoh: Qty fisik tidak sesuai BON"
+                    value={alasanReject}
+                    onChange={(e) => setAlasanReject(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            {approvalPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{approvalPesan}</div>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setModalApproval(null); setNamaApprover(""); setPasswordApproval(""); setAlasanReject(""); setApprovalPesan(""); setAksiApproval("Approved"); }}
+                className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleApproval}
+                disabled={approvalLoading}
+                className={`flex-1 text-white font-bold rounded-xl py-2 text-sm ${
+                  aksiApproval === "Approved" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"
+                }`}
+              >
+                {approvalLoading ? "Menyimpan..." : aksiApproval === "Approved" ? "✅ Konfirmasi Setuju" : "🚫 Konfirmasi Tolak"}
               </button>
             </div>
           </div>
