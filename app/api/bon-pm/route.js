@@ -63,11 +63,12 @@ export async function POST(request) {
       uomOverride || item.uom,
       tujuan,
       keterangan,
+      divisi || "-",
     ]);
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
-      range: "BON_PM!A:M",
+      range: "BON_PM!A:N",
       valueInputOption: "USER_ENTERED",
       requestBody: { values: bonRows },
     });

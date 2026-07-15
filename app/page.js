@@ -74,19 +74,12 @@ export default function Home() {
     new Date().toISOString().slice(0, 10)
   );
   const [filterLine, setFilterLine] = useState("");
-  // Filter Divisi untuk History/Laporan, supaya laporan bisa dipisah
-  // per divisi (Wafer Flat, Wafer Stick, Formulasi, Central Kitchen).
   const [filterDivisi, setFilterDivisi] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Divisi yang tidak memakai Line Produksi (field disembunyikan & tidak wajib)
-  const DIVISI_TANPA_LINE = ["Formulasi", "Central Kitchen"];
+  const DIVISI_TANPA_LINE = ["Formulasi"];
   const perluLine = !DIVISI_TANPA_LINE.includes(divisi);
-
-  // Divisi yang Tujuannya HANYA "Plastik" (dropdown Tujuan otomatis terisi
-  // & dikunci begitu Divisi ini dipilih).
-  const DIVISI_HANYA_PLASTIK = ["Formulasi", "Central Kitchen"];
-  const hanyaPlastik = DIVISI_HANYA_PLASTIK.includes(divisi);
 
   const [modalKirim, setModalKirim] = useState(null);
   const [qtyKirim, setQtyKirim] = useState("");
@@ -284,16 +277,8 @@ export default function Home() {
     setSelectedTapes([]);
     setBomList([]);
     // Reset Line setiap ganti divisi supaya tidak nyangkut nilai lama,
-    // terutama saat pindah ke/dari divisi yang tidak pakai Line
-    // (Formulasi & Central Kitchen).
+    // terutama saat pindah ke/dari divisi yang tidak pakai Line (Formulasi).
     setLine("");
-    // Formulasi & Central Kitchen: Tujuan otomatis "Plastik" dan dikunci.
-    // Divisi lain: reset Tujuan supaya user memilih ulang.
-    if (DIVISI_HANYA_PLASTIK.includes(value)) {
-      setTujuan("Plastik");
-    } else {
-      setTujuan("");
-    }
   };
 
   const handleProdukChange = (e) => {
@@ -330,20 +315,10 @@ export default function Home() {
     return n.includes("PACKING TAPE") || n.includes("TTR") || n.includes("CATRIDGE") || n.includes("THERMAL TRANSFER");
   };
 
-  // Divisi Formulasi & Central Kitchen memakai UOM "KG" HANYA untuk bahan
-  // plastik film (kode/nama diawali "PLS"). Bahan lain di masterlist
-  // Plastik seperti PACKING TAPE, TTR/CATRIDGE, dsb TETAP pakai UOM asli
-  // dari data (misal ROLL/M), karena satuannya memang bukan berat.
-  // Ini hanya untuk TAMPILAN di form (nilai final yang benar-benar
+  // Divisi Formulasi selalu memakai UOM "KG", terlepas dari UOM asli di
+  // sheet BOM. Ini hanya untuk TAMPILAN di form (nilai final yang benar-benar
   // disimpan tetap di-override lagi di server saat submit, lihat api/bon-pm).
-  const isBahanPlastikFilm = (namaPm) => {
-    const n = (namaPm || "").toUpperCase().trim();
-    return n.startsWith("PLS");
-  };
-  const uomTampil = (uomAsli, namaPm) =>
-    (divisi === "Formulasi" || divisi === "Central Kitchen") && isBahanPlastikFilm(namaPm)
-      ? "KG"
-      : uomAsli;
+  const uomTampil = (uomAsli) => (divisi === "Formulasi" ? "KG" : uomAsli);
 
   const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
   const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
@@ -357,7 +332,7 @@ export default function Home() {
 
   const handleSubmit = async () => {
     // Line Produksi wajib diisi KECUALI untuk divisi yang ada di
-    // DIVISI_TANPA_LINE (Formulasi & Central Kitchen).
+    // DIVISI_TANPA_LINE (misalnya "Formulasi").
     // Untuk Tujuan = "Plastik", Divisi & Pilih Produk (SKU) tidak wajib
     // karena bahan plastik tidak terikat ke produk/BOM manapun.
     if (isTujuanPlastik) {
@@ -407,8 +382,8 @@ export default function Home() {
         no_bon: generateNoBon(),
         tanggal: new Date().toLocaleDateString("id-ID"),
         nama_pembuat: namaPembuat,
-        // Untuk divisi tanpa Line (Formulasi & Central Kitchen), kirim "-"
-        // supaya kolom Line di Sheet tetap konsisten (tidak kosong/undefined).
+        // Untuk divisi tanpa Line (Formulasi), kirim "-" supaya kolom Line
+        // di Sheet tetap konsisten (tidak kosong/undefined).
         line: perluLine ? line : "-",
         tujuan, keterangan,
         sku_produk: isTujuanPlastik ? "-" : selectedSku,
@@ -623,20 +598,16 @@ export default function Home() {
     }
   };
 
-  // Bangun HTML lengkap laporan (dipakai untuk mode "Lihat" maupun "Print").
-  // Format potrait A4, rapi untuk arsip fisik: margin standar, tabel per-BON
-  // dengan keterangan shift + rentang jam, dan 2 kolom tanda tangan
-  // (Pembuat & Penerima) di setiap grup.
-  const buildLaporanHtml = () => {
+  // Laporan PDF dicetak dalam format potrait A4, rapi untuk arsip fisik:
+  // margin standar, tabel per-BON dengan keterangan shift + rentang jam,
+  // dan 2 kolom tanda tangan (Pembuat & Penerima) di setiap grup.
+  const handleDownloadPDF = () => {
     // FIX BUG: grouping HARUS pakai no_bon (unik per submission), bukan
     // kombinasi shift-line-nama. Kombinasi itu bisa sama persis untuk BON
     // yang berbeda (nama & line sama, disubmit beberapa menit berselang),
     // sehingga item dari BON yang berbeda-beda tercampur jadi satu grup.
     const grouped = history
-      .filter((row) =>
-        (filterLine === "" || row.line === filterLine) &&
-        (filterDivisi === "" || row.divisi === filterDivisi)
-      )
+      .filter((row) => filterLine === "" || row.line === filterLine)
       .reduce((acc, row) => {
         const key = row.no_bon;
         if (!acc[key]) acc[key] = { ...row, items: [] };
@@ -774,7 +745,7 @@ export default function Home() {
       <body>
         <div class="header">
           <h1>📋 Laporan BON PM</h1>
-          <p class="sub">${tanggalFormatted}${filterDivisi ? " · " + filterDivisi : ""}${filterLine ? " · Line " + filterLine : ""}</p>
+          <p class="sub">${tanggalFormatted}${filterLine ? " · Line " + filterLine : ""}</p>
         </div>
     `;
 
@@ -783,7 +754,7 @@ export default function Home() {
       html += `
         <div class="bon-card">
           <div class="bon-head">
-            <span>${group.shift}<span class="shift-jam">${jamShift ? "(" + jamShift + ")" : ""}</span> · ${group.divisi ? group.divisi + " · " : ""}Line ${group.line} · ${group.nama_pembuat}</span>
+            <span>${group.shift}<span class="shift-jam">${jamShift ? "(" + jamShift + ")" : ""}</span> · Line ${group.line} · ${group.nama_pembuat}</span>
             <span>${group.tanggal}</span>
           </div>
           <div class="bon-sub">
@@ -793,20 +764,19 @@ export default function Home() {
           <table class="item-table">
             <thead>
               <tr>
-                <th style="width:28%">Nama PM</th>
-                <th style="width:12%">QTY BON</th>
-                <th style="width:8%">UOM</th>
-                <th style="width:12%">Terkirim</th>
-                <th style="width:12%">Status</th>
-                <th style="width:12%">Sistem</th>
-                <th style="width:16%">Approval</th>
+                <th style="width:12%">Kode</th>
+                <th style="width:20%">Nama PM</th>
+                <th style="width:10%">QTY BON</th>
+                <th style="width:7%">UOM</th>
+                <th style="width:11%">Terkirim</th>
+                <th style="width:11%">Status</th>
+                <th style="width:11%">Sistem</th>
+                <th style="width:18%">Approval</th>
               </tr>
             </thead>
             <tbody>
       `;
-      group.items
-        .filter((item) => Number(item.qty_bon) > 0)
-        .forEach((item) => {
+      group.items.forEach((item) => {
         const totalKirim = getTotalKirim(item.no_bon, item.material_code);
         const sudahLunas = totalKirim >= Number(item.qty_bon);
         const sudahCeklis = isSudahCeklis(item.no_bon, item.material_code);
@@ -822,6 +792,7 @@ export default function Home() {
         }
         html += `
               <tr>
+                <td>${item.material_code}</td>
                 <td>${item.nama_pm}</td>
                 <td>${item.qty_bon}</td>
                 <td>${item.uom}</td>
@@ -855,30 +826,70 @@ export default function Home() {
       </html>
     `;
 
-    return html;
-  };
-
-  // Mode "Lihat": buka laporan di tab baru untuk dipreview saja, TIDAK
-  // otomatis memicu dialog print. User bisa print/save-as-pdf manual dari
-  // tab tersebut kalau mau (Ctrl+P / menu browser).
-  const handleViewPDF = () => {
-    const html = buildLaporanHtml();
-    const win = window.open("", "_blank");
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-  };
-
-  // Mode "Print": buka laporan di tab baru dan langsung memicu dialog print
-  // browser, dari situ user bisa pilih "Save as PDF" untuk download.
-  const handlePrintPDF = () => {
-    const html = buildLaporanHtml();
     const win = window.open("", "_blank");
     win.document.write(html);
     win.document.close();
     win.focus();
     win.onload = () => win.print();
     setTimeout(() => win.print(), 300);
+  };
+
+  // ==== Data History untuk render (dipisah dari JSX supaya aman diubah) ====
+  // 1) Filter dulu berdasar Line & Divisi yang dipilih di dropdown.
+  // 2) Kelompokkan jadi grup per no_bon (FIX BUG lama: dulu pakai key
+  //    shift-line-nama yang bisa collide antar BON berbeda).
+  // 3) Kalau filter Divisi = "Semua Divisi", bungkus grup-grup itu lagi jadi
+  //    3 section (Wafer Flat / Wafer Stick / Formulasi / Lainnya) supaya
+  //    tampilannya terorganisir per divisi.
+  const historyTerfilter = history.filter(
+    (row) =>
+      (filterLine === "" || row.line === filterLine) &&
+      (filterDivisi === "" || row.divisi === filterDivisi)
+  );
+
+  const groupedByNoBon = Object.entries(
+    historyTerfilter.reduce((acc, row) => {
+      const key = row.no_bon;
+      if (!acc[key]) acc[key] = { ...row, items: [] };
+      acc[key].items.push(row);
+      return acc;
+    }, {})
+  );
+
+  // Urutan tampilan section saat "Semua Divisi" dipilih.
+  const URUTAN_DIVISI = ["Wafer Flat", "Wafer Stick", "Formulasi"];
+
+  const sectionsPerDivisi =
+    filterDivisi !== ""
+      ? null // sedang filter 1 divisi spesifik → tidak perlu section
+      : (() => {
+          const bucket = {};
+          groupedByNoBon.forEach(([key, group]) => {
+            const namaDivisi = group.divisi && group.divisi.trim() !== "" ? group.divisi : "Lainnya";
+            if (!bucket[namaDivisi]) bucket[namaDivisi] = [];
+            bucket[namaDivisi].push([key, group]);
+          });
+          // Urutkan: divisi dikenal dulu sesuai URUTAN_DIVISI, sisanya (mis. "Lainnya") di akhir.
+          const namaDivisiUrut = [
+            ...URUTAN_DIVISI.filter((d) => bucket[d]),
+            ...Object.keys(bucket).filter((d) => !URUTAN_DIVISI.includes(d)),
+          ];
+          return namaDivisiUrut.map((namaDivisi) => ({ namaDivisi, groups: bucket[namaDivisi] }));
+        })();
+
+  // Kumpulan fungsi yang dibutuhkan komponen HistoryGroupCard, di-pass
+  // sekaligus lewat satu prop supaya pemanggilannya ringkas.
+  const historyHelpers = {
+    getTotalKirim,
+    isSudahCeklis,
+    hasRiwayatEdit,
+    isTerkunciEdit,
+    getApprovalItem,
+    getItemBelumSelesai,
+    handleOpenEdit,
+    handleOpenKirim,
+    handleOpenCeklis,
+    handleOpenApproval,
   };
 
   return (
@@ -898,7 +909,6 @@ export default function Home() {
                 <option value="Wafer Flat">Wafer Flat</option>
                 <option value="Wafer Stick">Wafer Stick</option>
                 <option value="Formulasi">Formulasi</option>
-                <option value="Central Kitchen">Central Kitchen</option>
               </select>
             </div>
             <div>
@@ -926,27 +936,13 @@ export default function Home() {
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium mb-1">Tujuan</label>
-              <select
-                className="w-full border rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
-                value={tujuan}
-                onChange={(e) => { setTujuan(e.target.value); setQtyMap({}); setSelectedTapes([]); }}
-                disabled={hanyaPlastik}
-              >
+              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={tujuan} onChange={(e) => { setTujuan(e.target.value); setQtyMap({}); setSelectedTapes([]); }}>
                 <option value="">-- Pilih Tujuan --</option>
-                {hanyaPlastik ? (
-                  <option value="Plastik">Plastik</option>
-                ) : (
-                  <>
-                    <option value="Ekspor">Ekspor</option>
-                    <option value="Lokal">Lokal</option>
-                    <option value="Trial">Trial</option>
-                    <option value="Plastik">Plastik</option>
-                  </>
-                )}
+                <option value="Ekspor">Ekspor</option>
+                <option value="Lokal">Lokal</option>
+                <option value="Trial">Trial</option>
+                <option value="Plastik">Plastik</option>
               </select>
-              {hanyaPlastik && (
-                <p className="text-[11px] text-gray-400 mt-1">Divisi ini hanya memakai Tujuan Plastik.</p>
-              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Keterangan</label>
@@ -996,7 +992,7 @@ export default function Home() {
                           <tr key={p.material_code} className="border-t">
                             <td className="px-2 py-2 text-xs">{p.material_code}</td>
                             <td className="px-2 py-2 text-xs">{p.nama_pm}</td>
-                            <td className="px-2 py-2 text-xs">{uomTampil(p.uom, p.nama_pm)}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(p.uom)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[p.material_code] || ""} onChange={(e) => handleQtyChange(p.material_code, e.target.value)} /></td>
                           </tr>
                         ))
@@ -1011,7 +1007,7 @@ export default function Home() {
                           <tr key={b.material_code} className="border-t">
                             <td className="px-2 py-2 text-xs">{b.material_code}</td>
                             <td className="px-2 py-2 text-xs">{b.nama_pm}</td>
-                            <td className="px-2 py-2 text-xs">{uomTampil(b.uom, b.nama_pm)}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(b.uom)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[b.material_code] || ""} onChange={(e) => handleQtyChange(b.material_code, e.target.value)} /></td>
                           </tr>
                         ))}
@@ -1022,7 +1018,7 @@ export default function Home() {
                               <button onClick={() => handleRemoveTape(t.material_code)} className="text-red-400 hover:text-red-600 font-bold text-xs">✕</button>
                               {t.nama_pm}
                             </td>
-                            <td className="px-2 py-2 text-xs">{uomTampil(t.uom, t.nama_pm)}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(t.uom)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={t.qty || ""} onChange={(e) => handleTapeQty(t.material_code, e.target.value)} /></td>
                           </tr>
                         ))}
@@ -1046,7 +1042,9 @@ export default function Home() {
             <div className="flex gap-2 flex-wrap">
               <select className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterDivisi} onChange={(e) => setFilterDivisi(e.target.value)}>
                 <option value="">Semua Divisi</option>
-                {[...new Set(history.map((r) => r.divisi))].filter(Boolean).sort().map((d) => (<option key={d} value={d}>{d}</option>))}
+                <option value="Wafer Flat">Wafer Flat</option>
+                <option value="Wafer Stick">Wafer Stick</option>
+                <option value="Formulasi">Formulasi</option>
               </select>
               <select className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterLine} onChange={(e) => setFilterLine(e.target.value)}>
                 <option value="">Semua Line</option>
@@ -1054,20 +1052,9 @@ export default function Home() {
               </select>
               <input type="date" className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterTanggal} onChange={(e) => setFilterTanggal(e.target.value)} />
               {history.length > 0 && (
-                <>
-                  <button
-                    onClick={handleViewPDF}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap"
-                  >
-                    👁️ Lihat
-                  </button>
-                  <button
-                    onClick={handlePrintPDF}
-                    className="bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap"
-                  >
-                    📄 Print/PDF
-                  </button>
-                </>
+                <button onClick={handleDownloadPDF} className="bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap">
+                  📄 PDF
+                </button>
               )}
             </div>
           </div>
@@ -1076,138 +1063,31 @@ export default function Home() {
             <p className="text-center text-gray-400 py-4 text-sm">Memuat data...</p>
           ) : history.length === 0 ? (
             <p className="text-center text-gray-400 py-4 text-sm">Tidak ada data untuk tanggal ini.</p>
-          ) : (
-            <div className="space-y-3">
-              {Object.entries(
-                history
-                  .filter((row) =>
-                    (filterLine === "" || row.line === filterLine) &&
-                    (filterDivisi === "" || row.divisi === filterDivisi)
-                  )
-                  .reduce((acc, row) => {
-                    // FIX BUG: grouping pakai no_bon (unik per submission),
-                    // bukan shift-line-nama yang bisa collide antar BON
-                    // berbeda saat nama & line kebetulan sama.
-                    const key = row.no_bon;
-                    if (!acc[key]) acc[key] = { ...row, items: [] };
-                    acc[key].items.push(row);
-                    return acc;
-                  }, {})
-              ).map(([key, group]) => (
-                <div key={key} className="border rounded-lg overflow-hidden">
-                  <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
-                    <span>{group.shift} · {group.divisi ? group.divisi + " · " : ""}Line {group.line} · {group.nama_pembuat}</span>
-                    <span>{group.tanggal}</span>
-                  </div>
-                  <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{group.nama_produk}</div>
-                  {getItemBelumSelesai(group).length > 0 && (
-                    <div className="px-3 py-2 bg-amber-50 border-y border-amber-200 text-xs text-amber-800 font-medium">
-                      ⚠️ Pengiriman belum selesai untuk {getItemBelumSelesai(group).length} item PM: {getItemBelumSelesai(group).map((it) => it.nama_pm).join(", ")}
-                    </div>
-                  )}
-                  {/* FIX: tabel dibungkus wrapper overflow-x-auto terpisah supaya
-                      bisa di-scroll horizontal di layar sempit (mobile), bukan
-                      terpotong oleh overflow-hidden pada card di atasnya. */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[520px]">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="text-left px-2 py-1">Nama PM</th>
-                          <th className="text-left px-2 py-1">BON</th>
-                          <th className="text-left px-2 py-1">Krm</th>
-                          <th className="text-left px-2 py-1">✏️</th>
-                          <th className="text-left px-2 py-1">🚚</th>
-                          <th className="text-left px-2 py-1">☑️</th>
-                          <th className="text-left px-2 py-1">✔️</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.items
-                          .filter((item) => Number(item.qty_bon) > 0)
-                          .map((item, i) => {
-                          const totalKirim = getTotalKirim(item.no_bon, item.material_code);
-                          const sudahLunas = totalKirim >= Number(item.qty_bon);
-                          const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
-                          const adaEdit = hasRiwayatEdit(item.no_bon, item.nama_pm);
-                          const terkunci = isTerkunciEdit(item);
-                          const judulKunci = terkunci
-                            ? "Sudah lewat hari, revisi hanya berlaku di hari yang sama dengan tanggal BON"
-                            : "";
-                          const approvalInfo = getApprovalItem(item.no_bon, item.material_code);
-                          return (
-                            <>
-                              <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
-                                <td className="px-2 py-1">{item.nama_pm}</td>
-                                <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
-                                <td className="px-2 py-1">
-                                  <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
-                                </td>
-                                <td className="px-2 py-1">
-                                  <button
-                                    onClick={() => handleOpenEdit(item)}
-                                    disabled={terkunci}
-                                    title={judulKunci}
-                                    className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${
-                                      terkunci
-                                        ? "bg-gray-300 cursor-not-allowed"
-                                        : "bg-yellow-500 hover:bg-yellow-600"
-                                    }`}
-                                  >
-                                    {terkunci ? "🔒" : "✏️"}
-                                  </button>
-                                </td>
-                                <td className="px-2 py-1">
-                                  <button
-                                    onClick={() => handleOpenKirim(item, group)}
-                                    className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
-                                  >
-                                    {adaEdit ? "⚠️🚚" : "🚚"}
-                                  </button>
-                                </td>
-                                <td className="px-2 py-1">
-                                  {ceklisInfo ? (
-                                    <span className="text-green-600 font-bold text-xs">✅</span>
-                                  ) : (
-                                    <button onClick={() => handleOpenCeklis(item)} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg">☑️</button>
-                                  )}
-                                </td>
-                                <td className="px-2 py-1">
-                                  {!sudahLunas ? (
-                                    <span className="text-gray-300 text-xs" title="Belum lunas terkirim">—</span>
-                                  ) : approvalInfo?.status === "Approved" ? (
-                                    <span className="text-green-600 font-bold text-sm" title={`Disetujui oleh ${approvalInfo.nama_approver} · ${approvalInfo.waktu_approval}`}>✓</span>
-                                  ) : approvalInfo?.status === "Rejected" ? (
-                                    <button
-                                      onClick={() => handleOpenApproval(item)}
-                                      className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse"
-                                      title={`Ditolak: ${approvalInfo.alasan_reject}`}
-                                    >
-                                      ✗
-                                    </button>
-                                  ) : (
-                                    <button
-                                      onClick={() => handleOpenApproval(item)}
-                                      className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg"
-                                    >
-                                      ✓/✗
-                                    </button>
-                                  )}
-                                </td>
-                              </tr>
-                              {approvalInfo?.status === "Rejected" && (
-                                <tr key={`${i}-rejected`} className="bg-red-50">
-                                  <td colSpan={7} className="px-2 py-1 text-[11px] text-red-700">
-                                    ✗ <b>Ditolak Pengawas ({approvalInfo.nama_approver}):</b> {approvalInfo.alasan_reject} — mohon segera diperbaiki oleh pembuat/pengirim BON.
-                                  </td>
-                                </tr>
-                              )}
-                            </>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+          ) : groupedByNoBon.length === 0 ? (
+            <p className="text-center text-gray-400 py-4 text-sm">Tidak ada data yang cocok dengan filter.</p>
+          ) : sectionsPerDivisi ? (
+            // "Semua Divisi" dipilih → tampilkan dikelompokkan per section divisi
+            <div className="space-y-6">
+              {sectionsPerDivisi.map(({ namaDivisi, groups }) => (
+                <div key={namaDivisi}>
+                  <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                    <span className="inline-block w-1.5 h-4 bg-blue-600 rounded-sm"></span>
+                    {namaDivisi}
+                    <span className="text-xs font-normal text-gray-400">({groups.length} BON)</span>
+                  </h3>
+                  <div className="space-y-3">
+                    {groups.map(([key, group]) => (
+                      <HistoryGroupCard key={key} groupKey={key} group={group} helpers={historyHelpers} />
+                    ))}
                   </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            // Filter divisi spesifik dipilih → tampilkan flat seperti biasa
+            <div className="space-y-3">
+              {groupedByNoBon.map(([key, group]) => (
+                <HistoryGroupCard key={key} groupKey={key} group={group} helpers={historyHelpers} />
               ))}
             </div>
           )}
@@ -1445,5 +1325,141 @@ export default function Home() {
       )}
 
     </main>
+  );
+}
+
+// Kartu satu grup BON (per no_bon) di History. Dipisah jadi komponen supaya
+// bisa dipakai ulang baik saat tampilan flat maupun saat dikelompokkan per
+// section Divisi. Semua fungsi/handler yang dibutuhkan dari komponen induk
+// (Home) di-pass lewat props, bukan didefinisikan ulang di sini.
+function HistoryGroupCard({ groupKey, group, helpers }) {
+  const {
+    getTotalKirim,
+    isSudahCeklis,
+    hasRiwayatEdit,
+    isTerkunciEdit,
+    getApprovalItem,
+    getItemBelumSelesai,
+    handleOpenEdit,
+    handleOpenKirim,
+    handleOpenCeklis,
+    handleOpenApproval,
+  } = helpers;
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
+        <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
+        <span>{group.tanggal}</span>
+      </div>
+      <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{group.nama_produk}</div>
+      {getItemBelumSelesai(group).length > 0 && (
+        <div className="px-3 py-2 bg-amber-50 border-y border-amber-200 text-xs text-amber-800 font-medium">
+          ⚠️ Pengiriman belum selesai untuk {getItemBelumSelesai(group).length} item PM: {getItemBelumSelesai(group).map((it) => it.nama_pm).join(", ")}
+        </div>
+      )}
+      {/* FIX: tabel dibungkus wrapper overflow-x-auto terpisah supaya
+          bisa di-scroll horizontal di layar sempit (mobile), bukan
+          terpotong oleh overflow-hidden pada card di atasnya. */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs min-w-[520px]">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="text-left px-2 py-1">Kode</th>
+              <th className="text-left px-2 py-1">Nama PM</th>
+              <th className="text-left px-2 py-1">BON</th>
+              <th className="text-left px-2 py-1">Krm</th>
+              <th className="text-left px-2 py-1">✏️</th>
+              <th className="text-left px-2 py-1">🚚</th>
+              <th className="text-left px-2 py-1">☑️</th>
+              <th className="text-left px-2 py-1">✔️</th>
+            </tr>
+          </thead>
+          <tbody>
+            {group.items.map((item, i) => {
+              const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+              const sudahLunas = totalKirim >= Number(item.qty_bon);
+              const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
+              const adaEdit = hasRiwayatEdit(item.no_bon, item.nama_pm);
+              const terkunci = isTerkunciEdit(item);
+              const judulKunci = terkunci
+                ? "Sudah lewat hari, revisi hanya berlaku di hari yang sama dengan tanggal BON"
+                : "";
+              const approvalInfo = getApprovalItem(item.no_bon, item.material_code);
+              return (
+                <>
+                  <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
+                    <td className="px-2 py-1 text-gray-500">{item.material_code}</td>
+                    <td className="px-2 py-1">{item.nama_pm}</td>
+                    <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
+                    <td className="px-2 py-1">
+                      <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
+                    </td>
+                    <td className="px-2 py-1">
+                      <button
+                        onClick={() => handleOpenEdit(item)}
+                        disabled={terkunci}
+                        title={judulKunci}
+                        className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${
+                          terkunci
+                            ? "bg-gray-300 cursor-not-allowed"
+                            : "bg-yellow-500 hover:bg-yellow-600"
+                        }`}
+                      >
+                        {terkunci ? "🔒" : "✏️"}
+                      </button>
+                    </td>
+                    <td className="px-2 py-1">
+                      <button
+                        onClick={() => handleOpenKirim(item, group)}
+                        className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
+                      >
+                        {adaEdit ? "⚠️🚚" : "🚚"}
+                      </button>
+                    </td>
+                    <td className="px-2 py-1">
+                      {ceklisInfo ? (
+                        <span className="text-green-600 font-bold text-xs">✅</span>
+                      ) : (
+                        <button onClick={() => handleOpenCeklis(item)} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg">☑️</button>
+                      )}
+                    </td>
+                    <td className="px-2 py-1">
+                      {!sudahLunas ? (
+                        <span className="text-gray-300 text-xs" title="Belum lunas terkirim">—</span>
+                      ) : approvalInfo?.status === "Approved" ? (
+                        <span className="text-green-600 font-bold text-sm" title={`Disetujui oleh ${approvalInfo.nama_approver} · ${approvalInfo.waktu_approval}`}>✓</span>
+                      ) : approvalInfo?.status === "Rejected" ? (
+                        <button
+                          onClick={() => handleOpenApproval(item)}
+                          className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse"
+                          title={`Ditolak: ${approvalInfo.alasan_reject}`}
+                        >
+                          ✗
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleOpenApproval(item)}
+                          className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg"
+                        >
+                          ✓/✗
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {approvalInfo?.status === "Rejected" && (
+                    <tr key={`${i}-rejected`} className="bg-red-50">
+                      <td colSpan={8} className="px-2 py-1 text-[11px] text-red-700">
+                        ✗ <b>Ditolak Pengawas ({approvalInfo.nama_approver}):</b> {approvalInfo.alasan_reject} — mohon segera diperbaiki oleh pembuat/pengirim BON.
+                      </td>
+                    </tr>
+                  )}
+                </>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
