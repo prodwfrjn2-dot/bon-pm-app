@@ -59,6 +59,11 @@ export default function Home() {
   const [namaPembuat, setNamaPembuat] = useState("");
   const [line, setLine] = useState("");
   const [tujuan, setTujuan] = useState("");
+  // Daftar bahan khusus untuk Tujuan = "Plastik" (bukan dari BOM produk,
+  // diambil dari sheet "Plastik" terpisah karena bahan ini tidak terikat SKU).
+  const [plastikList, setPlastikList] = useState([]);
+  const [loadingPlastik, setLoadingPlastik] = useState(false);
+  const isTujuanPlastik = tujuan === "Plastik";
   const [keterangan, setKeterangan] = useState("");
   const [qtyMap, setQtyMap] = useState({});
   const [selectedTapes, setSelectedTapes] = useState([]);
@@ -135,6 +140,23 @@ export default function Home() {
         setSelectedTapes([]);
       });
   }, [selectedSku]);
+
+  // Ambil daftar bahan Plastik dari sheet "Plastik" begitu Tujuan = "Plastik"
+  // dipilih. Tidak bergantung pada divisi/produk sama sekali.
+  useEffect(() => {
+    if (!isTujuanPlastik) {
+      setPlastikList([]);
+      return;
+    }
+    setLoadingPlastik(true);
+    fetch(`/api/plastik`)
+      .then((r) => r.json())
+      .then((d) => {
+        setPlastikList(d.data || []);
+        setQtyMap({});
+      })
+      .finally(() => setLoadingPlastik(false));
+  }, [isTujuanPlastik]);
 
   useEffect(() => {
     fetchHistory(filterTanggal);
@@ -305,24 +327,47 @@ export default function Home() {
   const handleSubmit = async () => {
     // Line Produksi wajib diisi KECUALI untuk divisi yang ada di
     // DIVISI_TANPA_LINE (misalnya "Formulasi").
-    if (!divisi || !selectedSku || !namaPembuat || !tujuan || (perluLine && !line)) {
+    // Untuk Tujuan = "Plastik", Divisi & Pilih Produk (SKU) tidak wajib
+    // karena bahan plastik tidak terikat ke produk/BOM manapun.
+    if (isTujuanPlastik) {
+      if (!namaPembuat || !tujuan || (perluLine && !line)) {
+        setPesan("⚠️ Lengkapi semua field terlebih dahulu!");
+        return;
+      }
+    } else if (!divisi || !selectedSku || !namaPembuat || !tujuan || (perluLine && !line)) {
       setPesan("⚠️ Lengkapi semua field terlebih dahulu!");
       return;
     }
-    const items = [
-      ...nonTapes.map((b) => ({
-        material_code: b.material_code,
-        nama_pm: b.nama_pm,
-        qty_bon: qtyMap[b.material_code] || 0,
-        uom: b.uom,
-      })),
-      ...selectedTapes.map((t) => ({
-        material_code: t.material_code,
-        nama_pm: t.nama_pm,
-        qty_bon: t.qty || 0,
-        uom: t.uom,
-      })),
-    ];
+
+    const items = isTujuanPlastik
+      ? plastikList
+          .filter((p) => Number(qtyMap[p.material_code]) > 0)
+          .map((p) => ({
+            material_code: p.material_code,
+            nama_pm: p.nama_pm,
+            qty_bon: qtyMap[p.material_code] || 0,
+            uom: p.uom,
+          }))
+      : [
+          ...nonTapes.map((b) => ({
+            material_code: b.material_code,
+            nama_pm: b.nama_pm,
+            qty_bon: qtyMap[b.material_code] || 0,
+            uom: b.uom,
+          })),
+          ...selectedTapes.map((t) => ({
+            material_code: t.material_code,
+            nama_pm: t.nama_pm,
+            qty_bon: t.qty || 0,
+            uom: t.uom,
+          })),
+        ];
+
+    if (isTujuanPlastik && items.length === 0) {
+      setPesan("⚠️ Isi minimal 1 qty bahan plastik!");
+      return;
+    }
+
     setLoading(true); setPesan("");
     const res = await fetch("/api/bon-pm", {
       method: "POST",
@@ -335,9 +380,9 @@ export default function Home() {
         // di Sheet tetap konsisten (tidak kosong/undefined).
         line: perluLine ? line : "-",
         tujuan, keterangan,
-        sku_produk: selectedSku,
-        nama_produk: selectedNama,
-        divisi,
+        sku_produk: isTujuanPlastik ? "-" : selectedSku,
+        nama_produk: isTujuanPlastik ? "Plastik" : selectedNama,
+        divisi: isTujuanPlastik ? (divisi || "-") : divisi,
         items,
       }),
     });
@@ -348,6 +393,7 @@ export default function Home() {
       setDivisi(""); setSelectedSku(""); setSelectedNama(""); setBomList([]);
       setNamaPembuat(""); setLine("");
       setTujuan(""); setKeterangan(""); setQtyMap({}); setSelectedTapes([]);
+      setPlastikList([]);
       fetchHistory(filterTanggal);
     } else {
       setPesan("❌ Gagal menyimpan: " + data.error);
@@ -550,10 +596,14 @@ export default function Home() {
   // margin standar, tabel per-BON dengan keterangan shift + rentang jam,
   // dan 2 kolom tanda tangan (Pembuat & Penerima) di setiap grup.
   const handleDownloadPDF = () => {
+    // FIX BUG: grouping HARUS pakai no_bon (unik per submission), bukan
+    // kombinasi shift-line-nama. Kombinasi itu bisa sama persis untuk BON
+    // yang berbeda (nama & line sama, disubmit beberapa menit berselang),
+    // sehingga item dari BON yang berbeda-beda tercampur jadi satu grup.
     const grouped = history
       .filter((row) => filterLine === "" || row.line === filterLine)
       .reduce((acc, row) => {
-        const key = `${row.shift}-Line${row.line}-${row.nama_pembuat}`;
+        const key = row.no_bon;
         if (!acc[key]) acc[key] = { ...row, items: [] };
         acc[key].items.push(row);
         return acc;
@@ -820,10 +870,12 @@ export default function Home() {
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium mb-1">Tujuan</label>
-              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={tujuan} onChange={(e) => setTujuan(e.target.value)}>
+              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={tujuan} onChange={(e) => { setTujuan(e.target.value); setQtyMap({}); setSelectedTapes([]); }}>
                 <option value="">-- Pilih Tujuan --</option>
                 <option value="Ekspor">Ekspor</option>
                 <option value="Lokal">Lokal</option>
+                <option value="Trial">Trial</option>
+                <option value="Plastik">Plastik</option>
               </select>
             </div>
             <div>
@@ -831,16 +883,20 @@ export default function Home() {
               <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opsional" value={keterangan} onChange={(e) => setKeterangan(e.target.value)} />
             </div>
           </div>
+          {!isTujuanPlastik && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1">Pilih Produk</label>
+              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={selectedSku} onChange={handleProdukChange} disabled={!divisi}>
+                <option value="">{divisi ? "-- Pilih Produk --" : "-- Pilih Divisi Dulu --"}</option>
+                {produkList.map((p) => (<option key={p.sku} value={p.sku}>{p.sku} - {p.nama}</option>))}
+              </select>
+            </div>
+          )}
           <div className="mb-4">
-            <label className="block text-sm font-medium mb-1">Pilih Produk</label>
-            <select className="w-full border rounded-lg px-3 py-2 text-sm" value={selectedSku} onChange={handleProdukChange} disabled={!divisi}>
-              <option value="">{divisi ? "-- Pilih Produk --" : "-- Pilih Divisi Dulu --"}</option>
-              {produkList.map((p) => (<option key={p.sku} value={p.sku}>{p.sku} - {p.nama}</option>))}
-            </select>
-          </div>
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Daftar Bahan PM (Otomatis dari BOM)</label>
-            {packingTapes.length > 0 && (
+            <label className="block text-sm font-medium mb-2">
+              Daftar Bahan PM {isTujuanPlastik ? "(Masterlist Plastik)" : "(Otomatis dari BOM)"}
+            </label>
+            {!isTujuanPlastik && packingTapes.length > 0 && (
               <select className="w-full border rounded-lg px-3 py-2 text-sm mb-3" onChange={(e) => { handleAddTape(e.target.value); e.target.value = ""; }} defaultValue="">
                 <option value="">-- Tambah PM --</option>
                 {packingTapes.filter((t) => !selectedTapes.find((s) => s.material_code === t.material_code)).map((t) => (<option key={t.material_code} value={t.material_code}>{t.nama_pm}</option>))}
@@ -858,7 +914,24 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody>
-                    {nonTapes.length === 0 && selectedTapes.length === 0 ? (
+                    {isTujuanPlastik ? (
+                      // Tujuan = Plastik: tampilkan seluruh masterlist Plastik,
+                      // tidak terikat produk/BOM sama sekali.
+                      plastikList.length === 0 ? (
+                        <tr><td colSpan={4} className="text-center py-4 text-gray-400 text-xs">
+                          {loadingPlastik ? "Memuat daftar plastik..." : "Tidak ada data di masterlist Plastik."}
+                        </td></tr>
+                      ) : (
+                        plastikList.map((p) => (
+                          <tr key={p.material_code} className="border-t">
+                            <td className="px-2 py-2 text-xs">{p.material_code}</td>
+                            <td className="px-2 py-2 text-xs">{p.nama_pm}</td>
+                            <td className="px-2 py-2 text-xs">{p.uom}</td>
+                            <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[p.material_code] || ""} onChange={(e) => handleQtyChange(p.material_code, e.target.value)} /></td>
+                          </tr>
+                        ))
+                      )
+                    ) : nonTapes.length === 0 && selectedTapes.length === 0 ? (
                       <tr><td colSpan={4} className="text-center py-4 text-gray-400 text-xs">
                         {!divisi ? "Pilih divisi terlebih dahulu..." : !selectedSku ? "Silakan pilih produk terlebih dahulu..." : "Memuat data..."}
                       </td></tr>
@@ -924,7 +997,10 @@ export default function Home() {
                 history
                   .filter((row) => filterLine === "" || row.line === filterLine)
                   .reduce((acc, row) => {
-                    const key = `${row.shift}-Line${row.line}-${row.nama_pembuat}`;
+                    // FIX BUG: grouping pakai no_bon (unik per submission),
+                    // bukan shift-line-nama yang bisa collide antar BON
+                    // berbeda saat nama & line kebetulan sama.
+                    const key = row.no_bon;
                     if (!acc[key]) acc[key] = { ...row, items: [] };
                     acc[key].items.push(row);
                     return acc;
