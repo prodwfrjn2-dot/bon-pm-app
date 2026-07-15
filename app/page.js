@@ -780,6 +780,10 @@ export default function Home() {
     `;
 
     Object.entries(grouped).forEach(([key, group]) => {
+      // Item dengan qty_bon 0/null tidak usah ikut ditampilkan di laporan PDF.
+      const itemsLaporan = group.items.filter((item) => Number(item.qty_bon) > 0);
+      if (itemsLaporan.length === 0) return;
+
       const jamShift = keteranganShift[group.shift] || "";
       html += `
         <div class="bon-card">
@@ -806,7 +810,7 @@ export default function Home() {
             </thead>
             <tbody>
       `;
-      group.items.forEach((item) => {
+      itemsLaporan.forEach((item) => {
         const totalKirim = getTotalKirim(item.no_bon, item.material_code);
         const sudahLunas = totalKirim >= Number(item.qty_bon);
         const sudahCeklis = isSudahCeklis(item.no_bon, item.material_code);
@@ -907,7 +911,11 @@ export default function Home() {
     }, {})
   );
 
-  // Urutan tampilan section saat "Semua Divisi" dipilih.
+  // Urutan tampilan section saat "Semua Divisi" dipilih. Juga dipakai
+  // sebagai daftar nama divisi yang VALID/dikenal aplikasi — nilai divisi
+  // di data yang tidak ada di daftar ini (mis. data lama yang rusak, ke-isi
+  // nilai Tujuan seperti "Lokal"/"Ekspor"/"Trial") akan dianggap "Lainnya",
+  // bukan dipakai mentah-mentah sebagai judul section.
   const URUTAN_DIVISI = ["Wafer Flat", "Wafer Stick", "Formulasi", "Central Kitchen"];
 
   const sectionsPerDivisi =
@@ -916,7 +924,8 @@ export default function Home() {
       : (() => {
           const bucket = {};
           groupedByNoBon.forEach(([key, group]) => {
-            const namaDivisi = group.divisi && group.divisi.trim() !== "" ? group.divisi : "Lainnya";
+            const namaDivisiMentah = group.divisi && group.divisi.trim() !== "" ? group.divisi.trim() : "";
+            const namaDivisi = URUTAN_DIVISI.includes(namaDivisiMentah) ? namaDivisiMentah : "Lainnya";
             if (!bucket[namaDivisi]) bucket[namaDivisi] = [];
             bucket[namaDivisi].push([key, group]);
           });
@@ -1415,6 +1424,12 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
     handleOpenApproval,
   } = helpers;
 
+  // Item dengan qty_bon 0/null/kosong tidak usah ditampilkan sama sekali.
+  const itemsTampil = group.items.filter((item) => Number(item.qty_bon) > 0);
+
+  // Kalau seluruh item di BON ini qty-nya 0, jangan render card-nya sama sekali.
+  if (itemsTampil.length === 0) return null;
+
   return (
     <div className="border rounded-lg overflow-hidden">
       <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
@@ -1445,7 +1460,7 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
             </tr>
           </thead>
           <tbody>
-            {group.items.map((item, i) => {
+            {itemsTampil.map((item, i) => {
               const totalKirim = getTotalKirim(item.no_bon, item.material_code);
               const sudahLunas = totalKirim >= Number(item.qty_bon);
               const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
