@@ -74,11 +74,19 @@ export default function Home() {
     new Date().toISOString().slice(0, 10)
   );
   const [filterLine, setFilterLine] = useState("");
+  // Filter Divisi untuk History/Laporan, supaya laporan bisa dipisah
+  // per divisi (Wafer Flat, Wafer Stick, Formulasi, Central Kitchen).
+  const [filterDivisi, setFilterDivisi] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Divisi yang tidak memakai Line Produksi (field disembunyikan & tidak wajib)
-  const DIVISI_TANPA_LINE = ["Formulasi"];
+  const DIVISI_TANPA_LINE = ["Formulasi", "Central Kitchen"];
   const perluLine = !DIVISI_TANPA_LINE.includes(divisi);
+
+  // Divisi yang Tujuannya HANYA "Plastik" (dropdown Tujuan otomatis terisi
+  // & dikunci begitu Divisi ini dipilih).
+  const DIVISI_HANYA_PLASTIK = ["Formulasi", "Central Kitchen"];
+  const hanyaPlastik = DIVISI_HANYA_PLASTIK.includes(divisi);
 
   const [modalKirim, setModalKirim] = useState(null);
   const [qtyKirim, setQtyKirim] = useState("");
@@ -276,8 +284,16 @@ export default function Home() {
     setSelectedTapes([]);
     setBomList([]);
     // Reset Line setiap ganti divisi supaya tidak nyangkut nilai lama,
-    // terutama saat pindah ke/dari divisi yang tidak pakai Line (Formulasi).
+    // terutama saat pindah ke/dari divisi yang tidak pakai Line
+    // (Formulasi & Central Kitchen).
     setLine("");
+    // Formulasi & Central Kitchen: Tujuan otomatis "Plastik" dan dikunci.
+    // Divisi lain: reset Tujuan supaya user memilih ulang.
+    if (DIVISI_HANYA_PLASTIK.includes(value)) {
+      setTujuan("Plastik");
+    } else {
+      setTujuan("");
+    }
   };
 
   const handleProdukChange = (e) => {
@@ -314,10 +330,12 @@ export default function Home() {
     return n.includes("PACKING TAPE") || n.includes("TTR") || n.includes("CATRIDGE") || n.includes("THERMAL TRANSFER");
   };
 
-  // Divisi Formulasi selalu memakai UOM "KG", terlepas dari UOM asli di
-  // sheet BOM. Ini hanya untuk TAMPILAN di form (nilai final yang benar-benar
-  // disimpan tetap di-override lagi di server saat submit, lihat api/bon-pm).
-  const uomTampil = (uomAsli) => (divisi === "Formulasi" ? "KG" : uomAsli);
+  // Divisi Formulasi & Central Kitchen selalu memakai UOM "KG", terlepas
+  // dari UOM asli di sheet BOM. Ini hanya untuk TAMPILAN di form (nilai
+  // final yang benar-benar disimpan tetap di-override lagi di server saat
+  // submit, lihat api/bon-pm).
+  const uomTampil = (uomAsli) =>
+    (divisi === "Formulasi" || divisi === "Central Kitchen") ? "KG" : uomAsli;
 
   const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
   const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
@@ -331,7 +349,7 @@ export default function Home() {
 
   const handleSubmit = async () => {
     // Line Produksi wajib diisi KECUALI untuk divisi yang ada di
-    // DIVISI_TANPA_LINE (misalnya "Formulasi").
+    // DIVISI_TANPA_LINE (Formulasi & Central Kitchen).
     // Untuk Tujuan = "Plastik", Divisi & Pilih Produk (SKU) tidak wajib
     // karena bahan plastik tidak terikat ke produk/BOM manapun.
     if (isTujuanPlastik) {
@@ -381,8 +399,8 @@ export default function Home() {
         no_bon: generateNoBon(),
         tanggal: new Date().toLocaleDateString("id-ID"),
         nama_pembuat: namaPembuat,
-        // Untuk divisi tanpa Line (Formulasi), kirim "-" supaya kolom Line
-        // di Sheet tetap konsisten (tidak kosong/undefined).
+        // Untuk divisi tanpa Line (Formulasi & Central Kitchen), kirim "-"
+        // supaya kolom Line di Sheet tetap konsisten (tidak kosong/undefined).
         line: perluLine ? line : "-",
         tujuan, keterangan,
         sku_produk: isTujuanPlastik ? "-" : selectedSku,
@@ -606,7 +624,10 @@ export default function Home() {
     // yang berbeda (nama & line sama, disubmit beberapa menit berselang),
     // sehingga item dari BON yang berbeda-beda tercampur jadi satu grup.
     const grouped = history
-      .filter((row) => filterLine === "" || row.line === filterLine)
+      .filter((row) =>
+        (filterLine === "" || row.line === filterLine) &&
+        (filterDivisi === "" || row.divisi === filterDivisi)
+      )
       .reduce((acc, row) => {
         const key = row.no_bon;
         if (!acc[key]) acc[key] = { ...row, items: [] };
@@ -744,7 +765,7 @@ export default function Home() {
       <body>
         <div class="header">
           <h1>📋 Laporan BON PM</h1>
-          <p class="sub">${tanggalFormatted}${filterLine ? " · Line " + filterLine : ""}</p>
+          <p class="sub">${tanggalFormatted}${filterDivisi ? " · " + filterDivisi : ""}${filterLine ? " · Line " + filterLine : ""}</p>
         </div>
     `;
 
@@ -753,7 +774,7 @@ export default function Home() {
       html += `
         <div class="bon-card">
           <div class="bon-head">
-            <span>${group.shift}<span class="shift-jam">${jamShift ? "(" + jamShift + ")" : ""}</span> · Line ${group.line} · ${group.nama_pembuat}</span>
+            <span>${group.shift}<span class="shift-jam">${jamShift ? "(" + jamShift + ")" : ""}</span> · ${group.divisi ? group.divisi + " · " : ""}Line ${group.line} · ${group.nama_pembuat}</span>
             <span>${group.tanggal}</span>
           </div>
           <div class="bon-sub">
@@ -848,6 +869,7 @@ export default function Home() {
                 <option value="Wafer Flat">Wafer Flat</option>
                 <option value="Wafer Stick">Wafer Stick</option>
                 <option value="Formulasi">Formulasi</option>
+                <option value="Central Kitchen">Central Kitchen</option>
               </select>
             </div>
             <div>
@@ -875,13 +897,27 @@ export default function Home() {
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium mb-1">Tujuan</label>
-              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={tujuan} onChange={(e) => { setTujuan(e.target.value); setQtyMap({}); setSelectedTapes([]); }}>
+              <select
+                className="w-full border rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                value={tujuan}
+                onChange={(e) => { setTujuan(e.target.value); setQtyMap({}); setSelectedTapes([]); }}
+                disabled={hanyaPlastik}
+              >
                 <option value="">-- Pilih Tujuan --</option>
-                <option value="Ekspor">Ekspor</option>
-                <option value="Lokal">Lokal</option>
-                <option value="Trial">Trial</option>
-                <option value="Plastik">Plastik</option>
+                {hanyaPlastik ? (
+                  <option value="Plastik">Plastik</option>
+                ) : (
+                  <>
+                    <option value="Ekspor">Ekspor</option>
+                    <option value="Lokal">Lokal</option>
+                    <option value="Trial">Trial</option>
+                    <option value="Plastik">Plastik</option>
+                  </>
+                )}
               </select>
+              {hanyaPlastik && (
+                <p className="text-[11px] text-gray-400 mt-1">Divisi ini hanya memakai Tujuan Plastik.</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Keterangan</label>
@@ -979,6 +1015,10 @@ export default function Home() {
           <div className="flex flex-col gap-2 mb-4 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg md:text-xl font-bold">📊 History BON PM</h2>
             <div className="flex gap-2 flex-wrap">
+              <select className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterDivisi} onChange={(e) => setFilterDivisi(e.target.value)}>
+                <option value="">Semua Divisi</option>
+                {[...new Set(history.map((r) => r.divisi))].filter(Boolean).sort().map((d) => (<option key={d} value={d}>{d}</option>))}
+              </select>
               <select className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterLine} onChange={(e) => setFilterLine(e.target.value)}>
                 <option value="">Semua Line</option>
                 {[...new Set(history.map((r) => r.line))].filter(Boolean).sort().map((l) => (<option key={l} value={l}>Line {l}</option>))}
@@ -1000,7 +1040,10 @@ export default function Home() {
             <div className="space-y-3">
               {Object.entries(
                 history
-                  .filter((row) => filterLine === "" || row.line === filterLine)
+                  .filter((row) =>
+                    (filterLine === "" || row.line === filterLine) &&
+                    (filterDivisi === "" || row.divisi === filterDivisi)
+                  )
                   .reduce((acc, row) => {
                     // FIX BUG: grouping pakai no_bon (unik per submission),
                     // bukan shift-line-nama yang bisa collide antar BON
@@ -1013,7 +1056,7 @@ export default function Home() {
               ).map(([key, group]) => (
                 <div key={key} className="border rounded-lg overflow-hidden">
                   <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
-                    <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
+                    <span>{group.shift} · {group.divisi ? group.divisi + " · " : ""}Line {group.line} · {group.nama_pembuat}</span>
                     <span>{group.tanggal}</span>
                   </div>
                   <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{group.nama_produk}</div>
