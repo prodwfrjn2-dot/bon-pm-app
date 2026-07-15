@@ -12,8 +12,10 @@ export async function GET(request) {
     });
 
     const rows = response.data.values || [];
+    // FIX QUOTA: no_bon kosong/tidak dikirim → kembalikan SEMUA baris,
+    // supaya History cukup 1x fetch untuk semua BON (bukan per BON).
     const filtered = rows
-      .filter((row) => row[0] === no_bon)
+      .filter((row) => !no_bon || row[0] === no_bon)
       .map((row) => ({
         no_bon: row[0] || "",
         material_code: row[1] || "",

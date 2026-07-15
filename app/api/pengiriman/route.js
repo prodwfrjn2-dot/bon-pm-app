@@ -12,8 +12,13 @@ export async function GET(request) {
     });
 
     const rows = response.data.values || [];
+    // FIX QUOTA: kalau parameter no_bon TIDAK dikirim (dipanggil tanpa
+    // query string), kembalikan SEMUA baris. Ini dipakai History supaya
+    // cukup 1x fetch untuk semua BON, bukan 1x fetch per BON (yang
+    // sebelumnya bikin quota "Read requests per minute" Google Sheets API
+    // cepat habis).
     const filtered = rows
-      .filter((row) => row[0] === no_bon)
+      .filter((row) => !no_bon || row[0] === no_bon)
       .map((row) => ({
         no_bon: row[0] || "",
         material_code: row[1] || "",

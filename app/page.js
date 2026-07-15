@@ -168,20 +168,50 @@ export default function Home() {
     fetchHistory(filterTanggal);
   }, [filterTanggal]);
 
+  // Kelompokkan array of rows (yang masing-masing punya field no_bon)
+  // menjadi objek { no_bon: [rows...] }. Dipakai untuk mengubah hasil 1x
+  // fetch "ambil semua data" jadi bentuk state yang sama seperti sebelumnya
+  // (riwayatKirim, statusCeklis, dst), supaya semua helper/fungsi lain yang
+  // sudah ada (getTotalKirim, isSudahCeklis, dll) tidak perlu diubah.
+  const groupByNoBon = (rows) =>
+    (rows || []).reduce((acc, row) => {
+      const key = row.no_bon;
+      if (!key) return acc;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(row);
+      return acc;
+    }, {});
+
+  // FIX QUOTA GOOGLE SHEETS: sebelumnya di sini di-loop per no_bon, jadi
+  // kalau ada 20 BON dalam 1 tanggal → 20 x 4 = 80 request ke Sheets API
+  // hanya untuk membuka History sekali. Ini gampang kena error "Quota
+  // exceeded for quota metric 'Read requests' ... per minute per user".
+  // Sekarang cukup 4 request TOTAL (bukan dikali jumlah BON) — masing-
+  // masing endpoint dipanggil tanpa parameter no_bon supaya mengembalikan
+  // SEMUA baris, lalu dikelompokkan per no_bon di client dengan groupByNoBon.
   const fetchHistory = async (tanggal) => {
     setLoadingHistory(true);
-    const res = await fetch(`/api/history?tanggal=${tanggal}`);
-    const data = await res.json();
-    const rows = data.data || [];
-    setHistory(rows);
+    const [historyRes, kirimRes, ceklisRes, editRes, approvalRes] = await Promise.all([
+      fetch(`/api/history?tanggal=${tanggal}`),
+      fetch(`/api/pengiriman`),
+      fetch(`/api/ceklis`),
+      fetch(`/api/edit-bon`),
+      fetch(`/api/approval-penerimaan`),
+    ]);
+    const [historyData, kirimData, ceklisData, editData, approvalData] = await Promise.all([
+      historyRes.json(),
+      kirimRes.json(),
+      ceklisRes.json(),
+      editRes.json(),
+      approvalRes.json(),
+    ]);
+
+    setHistory(historyData.data || []);
+    setRiwayatKirim(groupByNoBon(kirimData.data));
+    setStatusCeklis(groupByNoBon(ceklisData.data));
+    setRiwayatEdit(groupByNoBon(editData.data));
+    setStatusApproval(groupByNoBon(approvalData.data));
     setLoadingHistory(false);
-    const noBonList = [...new Set(rows.map((r) => r.no_bon).filter(Boolean))];
-    noBonList.forEach((no_bon) => {
-      fetchRiwayatKirim(no_bon);
-      fetchStatusCeklis(no_bon);
-      fetchRiwayatEdit(no_bon);
-      fetchStatusApproval(no_bon);
-    });
   };
 
   const fetchRiwayatKirim = async (no_bon) => {
