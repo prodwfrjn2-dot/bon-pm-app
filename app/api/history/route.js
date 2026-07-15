@@ -6,9 +6,12 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const tanggal = searchParams.get("tanggal");
 
+    // Range diperluas dari A2:K10000 -> A2:L10000 supaya kolom ke-12 (L),
+    // yaitu Divisi, ikut terbaca. Sesuaikan huruf kolom di bawah kalau
+    // posisi kolom Divisi di Sheet BON_PM kamu berbeda.
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "BON_PM!A2:K10000",
+      range: "BON_PM!A2:L10000",
     });
 
     const rows = response.data.values || [];
@@ -33,6 +36,8 @@ export async function GET(request) {
         nama_pm: row[8] || "",
         qty_bon: row[9] || "",
         uom: row[10] || "",
+        // Kolom ke-12 (index 11 / kolom L) = Divisi.
+        divisi: row[11] || "",
       }));
 
     return new Response(JSON.stringify({ success: true, data: filtered }), {

@@ -78,8 +78,6 @@ export default function Home() {
   // per divisi (Wafer Flat, Wafer Stick, Formulasi, Central Kitchen).
   const [filterDivisi, setFilterDivisi] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
-  // Status loading saat file PDF laporan sedang di-generate & didownload.
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // Divisi yang tidak memakai Line Produksi (field disembunyikan & tidak wajib)
   const DIVISI_TANPA_LINE = ["Formulasi", "Central Kitchen"];
@@ -625,282 +623,262 @@ export default function Home() {
     }
   };
 
-  // Laporan PDF di-generate & di-download LANGSUNG sebagai file .pdf (tidak
-  // lagi membuka dialog print browser). Format tetap potrait A4: margin
-  // standar, tabel per-BON dengan keterangan shift + rentang jam, dan 2
-  // kolom tanda tangan (Pembuat & Penerima) di setiap grup.
-  const handleDownloadPDF = async () => {
-    if (downloadingPdf) return;
-    setDownloadingPdf(true);
-    try {
-      // FIX BUG: grouping HARUS pakai no_bon (unik per submission), bukan
-      // kombinasi shift-line-nama. Kombinasi itu bisa sama persis untuk BON
-      // yang berbeda (nama & line sama, disubmit beberapa menit berselang),
-      // sehingga item dari BON yang berbeda-beda tercampur jadi satu grup.
-      const grouped = history
-        .filter((row) =>
-          (filterLine === "" || row.line === filterLine) &&
-          (filterDivisi === "" || row.divisi === filterDivisi)
-        )
-        .reduce((acc, row) => {
-          const key = row.no_bon;
-          if (!acc[key]) acc[key] = { ...row, items: [] };
-          acc[key].items.push(row);
-          return acc;
-        }, {});
+  // Bangun HTML lengkap laporan (dipakai untuk mode "Lihat" maupun "Print").
+  // Format potrait A4, rapi untuk arsip fisik: margin standar, tabel per-BON
+  // dengan keterangan shift + rentang jam, dan 2 kolom tanda tangan
+  // (Pembuat & Penerima) di setiap grup.
+  const buildLaporanHtml = () => {
+    // FIX BUG: grouping HARUS pakai no_bon (unik per submission), bukan
+    // kombinasi shift-line-nama. Kombinasi itu bisa sama persis untuk BON
+    // yang berbeda (nama & line sama, disubmit beberapa menit berselang),
+    // sehingga item dari BON yang berbeda-beda tercampur jadi satu grup.
+    const grouped = history
+      .filter((row) =>
+        (filterLine === "" || row.line === filterLine) &&
+        (filterDivisi === "" || row.divisi === filterDivisi)
+      )
+      .reduce((acc, row) => {
+        const key = row.no_bon;
+        if (!acc[key]) acc[key] = { ...row, items: [] };
+        acc[key].items.push(row);
+        return acc;
+      }, {});
 
-      const tanggalFormatted = new Date(filterTanggal).toLocaleDateString("id-ID", {
-        day: "numeric", month: "long", year: "numeric"
-      });
+    const tanggalFormatted = new Date(filterTanggal).toLocaleDateString("id-ID", {
+      day: "numeric", month: "long", year: "numeric"
+    });
 
-      // Keterangan rentang jam per shift, mengikuti hari dari tanggal laporan
-      // (bukan hari ini) — supaya laporan tanggal Sabtu tetap tampilkan
-      // rentang jam Sabtu meski dicetak di hari lain.
-      const tanggalLaporan = new Date(filterTanggal);
-      const hariLaporan = tanggalLaporan.toLocaleDateString("en-US", { weekday: "short" });
-      const isSabtuLaporan = hariLaporan === "Sat";
-      const keteranganShift = isSabtuLaporan
-        ? { "Shift 1": "07:00-12:00", "Shift 2": "12:00-17:00", "Shift 3": "17:00-22:00" }
-        : { "Shift 1": "07:00-15:00", "Shift 2": "15:00-23:00", "Shift 3": "23:00-07:00" };
+    // Keterangan rentang jam per shift, mengikuti hari dari tanggal laporan
+    // (bukan hari ini) — supaya laporan tanggal Sabtu tetap tampilkan rentang
+    // jam Sabtu meski dicetak di hari lain.
+    const tanggalLaporan = new Date(filterTanggal);
+    const hariLaporan = tanggalLaporan.toLocaleDateString("en-US", { weekday: "short" });
+    const isSabtuLaporan = hariLaporan === "Sat";
+    const keteranganShift = isSabtuLaporan
+      ? { "Shift 1": "07:00-12:00", "Shift 2": "12:00-17:00", "Shift 3": "17:00-22:00" }
+      : { "Shift 1": "07:00-15:00", "Shift 2": "15:00-23:00", "Shift 3": "23:00-07:00" };
 
-      // CSS di-inject sebagai <style> terpisah ke <head> (bukan di dalam
-      // string HTML body) supaya html2canvas (dipakai html2pdf.js) bisa
-      // membaca style-nya dengan benar saat merender container ke gambar.
-      const cssText = `
-        #laporan-pdf-container * { box-sizing: border-box; }
-        #laporan-pdf-container {
-          font-family: Arial, Helvetica, sans-serif;
-          font-size: 10px;
-          color: #1f2937;
-          background: #ffffff;
-        }
-        #laporan-pdf-container .header {
-          text-align: center;
-          border-bottom: 2px solid #1d4ed8;
-          padding-bottom: 8px;
-          margin-bottom: 14px;
-        }
-        #laporan-pdf-container .header h1 {
-          font-size: 15px;
-          margin: 0 0 2px 0;
-          color: #1d4ed8;
-        }
-        #laporan-pdf-container .header .sub {
-          font-size: 10px;
-          color: #6b7280;
-          margin: 0;
-        }
-        #laporan-pdf-container .bon-card {
-          border: 1px solid #d1d5db;
-          border-radius: 3px;
-          margin-bottom: 12px;
-          overflow: hidden;
-        }
-        #laporan-pdf-container .bon-head {
-          background: #1d4ed8;
-          color: #ffffff;
-          padding: 5px 8px;
-          display: flex;
-          justify-content: space-between;
-          font-size: 10px;
-          font-weight: bold;
-        }
-        #laporan-pdf-container .bon-head .shift-jam {
-          font-weight: normal;
-          font-size: 8.5px;
-          opacity: 0.85;
-          margin-left: 4px;
-        }
-        #laporan-pdf-container .bon-sub {
-          background: #f3f4f6;
-          padding: 3px 8px;
-          font-size: 9px;
-          color: #374151;
-          display: flex;
-          justify-content: space-between;
-        }
-        #laporan-pdf-container table.item-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-        #laporan-pdf-container table.item-table th {
-          background: #eef2ff;
-          color: #374151;
-          font-size: 8.5px;
-          text-align: left;
-          padding: 3px 8px;
-          border-top: 1px solid #e5e7eb;
-          border-bottom: 1px solid #e5e7eb;
-        }
-        #laporan-pdf-container table.item-table td {
-          font-size: 9px;
-          padding: 3px 8px;
-          border-bottom: 1px solid #f1f5f9;
-        }
-        #laporan-pdf-container table.item-table tr:last-child td {
-          border-bottom: none;
-        }
-        #laporan-pdf-container .ok { color: #16a34a; font-weight: bold; }
-        #laporan-pdf-container .kurang { color: #ea580c; }
-        #laporan-pdf-container .rejected { color: #dc2626; font-weight: bold; }
-        #laporan-pdf-container .ttd-wrap {
-          display: flex;
-          border-top: 1px solid #e5e7eb;
-        }
-        #laporan-pdf-container .ttd-box {
-          flex: 1;
-          padding: 8px;
-          text-align: center;
-          font-size: 8.5px;
-          color: #4b5563;
-        }
-        #laporan-pdf-container .ttd-box:first-child {
-          border-right: 1px solid #e5e7eb;
-        }
-        #laporan-pdf-container .ttd-label {
-          font-weight: bold;
-          margin-bottom: 28px;
-        }
-        #laporan-pdf-container .ttd-line {
-          border-top: 1px solid #9ca3af;
-          padding-top: 3px;
-        }
-        #laporan-pdf-container .print-footer {
-          margin-top: 10px;
-          text-align: right;
-          font-size: 8px;
-          color: #9ca3af;
-        }
-      `;
-
-      let bodyHtml = `
+    let html = `
+      <html>
+      <head>
+        <title>BON PM ${tanggalFormatted}</title>
+        <style>
+          @page { size: A4 portrait; margin: 15mm 12mm; }
+          * { box-sizing: border-box; }
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10px;
+            color: #1f2937;
+            margin: 0;
+          }
+          .header {
+            text-align: center;
+            border-bottom: 2px solid #1d4ed8;
+            padding-bottom: 8px;
+            margin-bottom: 14px;
+          }
+          .header h1 {
+            font-size: 15px;
+            margin: 0 0 2px 0;
+            color: #1d4ed8;
+          }
+          .header .sub {
+            font-size: 10px;
+            color: #6b7280;
+            margin: 0;
+          }
+          .bon-card {
+            border: 1px solid #d1d5db;
+            border-radius: 3px;
+            margin-bottom: 12px;
+            page-break-inside: avoid;
+            overflow: hidden;
+          }
+          .bon-head {
+            background: #1d4ed8;
+            color: #ffffff;
+            padding: 5px 8px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            font-weight: bold;
+          }
+          .bon-head .shift-jam {
+            font-weight: normal;
+            font-size: 8.5px;
+            opacity: 0.85;
+            margin-left: 4px;
+          }
+          .bon-sub {
+            background: #f3f4f6;
+            padding: 3px 8px;
+            font-size: 9px;
+            color: #374151;
+            display: flex;
+            justify-content: space-between;
+          }
+          table.item-table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          table.item-table th {
+            background: #eef2ff;
+            color: #374151;
+            font-size: 8.5px;
+            text-align: left;
+            padding: 3px 8px;
+            border-top: 1px solid #e5e7eb;
+            border-bottom: 1px solid #e5e7eb;
+          }
+          table.item-table td {
+            font-size: 9px;
+            padding: 3px 8px;
+            border-bottom: 1px solid #f1f5f9;
+          }
+          table.item-table tr:last-child td {
+            border-bottom: none;
+          }
+          .ok { color: #16a34a; font-weight: bold; }
+          .kurang { color: #ea580c; }
+          .rejected { color: #dc2626; font-weight: bold; }
+          .ttd-wrap {
+            display: flex;
+            border-top: 1px solid #e5e7eb;
+          }
+          .ttd-box {
+            flex: 1;
+            padding: 8px;
+            text-align: center;
+            font-size: 8.5px;
+            color: #4b5563;
+          }
+          .ttd-box:first-child {
+            border-right: 1px solid #e5e7eb;
+          }
+          .ttd-label {
+            font-weight: bold;
+            margin-bottom: 28px;
+          }
+          .ttd-line {
+            border-top: 1px solid #9ca3af;
+            padding-top: 3px;
+          }
+          .print-footer {
+            margin-top: 10px;
+            text-align: right;
+            font-size: 8px;
+            color: #9ca3af;
+          }
+        </style>
+      </head>
+      <body>
         <div class="header">
           <h1>📋 Laporan BON PM</h1>
           <p class="sub">${tanggalFormatted}${filterDivisi ? " · " + filterDivisi : ""}${filterLine ? " · Line " + filterLine : ""}</p>
         </div>
-      `;
+    `;
 
-      Object.entries(grouped).forEach(([key, group]) => {
-        const jamShift = keteranganShift[group.shift] || "";
-        bodyHtml += `
-          <div class="bon-card">
-            <div class="bon-head">
-              <span>${group.shift}<span class="shift-jam">${jamShift ? "(" + jamShift + ")" : ""}</span> · ${group.divisi ? group.divisi + " · " : ""}Line ${group.line} · ${group.nama_pembuat}</span>
-              <span>${group.tanggal}</span>
-            </div>
-            <div class="bon-sub">
-              <span>${group.nama_produk}</span>
-              <span>No BON: ${group.no_bon || group.items[0]?.no_bon || ""}</span>
-            </div>
-            <table class="item-table">
-              <thead>
-                <tr>
-                  <th style="width:28%">Nama PM</th>
-                  <th style="width:12%">QTY BON</th>
-                  <th style="width:8%">UOM</th>
-                  <th style="width:12%">Terkirim</th>
-                  <th style="width:12%">Status</th>
-                  <th style="width:12%">Sistem</th>
-                  <th style="width:16%">Approval</th>
-                </tr>
-              </thead>
-              <tbody>
-        `;
-        group.items
-          .filter((item) => Number(item.qty_bon) > 0)
-          .forEach((item) => {
-            const totalKirim = getTotalKirim(item.no_bon, item.material_code);
-            const sudahLunas = totalKirim >= Number(item.qty_bon);
-            const sudahCeklis = isSudahCeklis(item.no_bon, item.material_code);
-            const approvalItem = getApprovalItem(item.no_bon, item.material_code);
-            let approvalLabel = "-";
-            let approvalClass = "kurang";
-            if (approvalItem?.status === "Approved") {
-              approvalLabel = "✓ Disetujui";
-              approvalClass = "ok";
-            } else if (approvalItem?.status === "Rejected") {
-              approvalLabel = "✗ Ditolak";
-              approvalClass = "rejected";
-            }
-            bodyHtml += `
-                  <tr>
-                    <td>${item.nama_pm}</td>
-                    <td>${item.qty_bon}</td>
-                    <td>${item.uom}</td>
-                    <td class="${sudahLunas ? "ok" : "kurang"}">${totalKirim}</td>
-                    <td class="${sudahLunas ? "ok" : "kurang"}">${sudahLunas ? "✓ Lunas" : "Belum Lunas"}</td>
-                    <td class="${sudahCeklis ? "ok" : "kurang"}">${sudahCeklis ? "✓ Sudah" : "Belum"}</td>
-                    <td class="${approvalClass}">${approvalLabel}</td>
-                  </tr>
-            `;
-          });
-        bodyHtml += `
-              </tbody>
-            </table>
-            <div class="ttd-wrap">
-              <div class="ttd-box">
-                <div class="ttd-label">TTD Pembuat</div>
-                <div class="ttd-line">${group.nama_pembuat || ""}</div>
-              </div>
-              <div class="ttd-box">
-                <div class="ttd-label">TTD Penerima (Pengawas)</div>
-                <div class="ttd-line">&nbsp;</div>
-              </div>
-            </div>
+    Object.entries(grouped).forEach(([key, group]) => {
+      const jamShift = keteranganShift[group.shift] || "";
+      html += `
+        <div class="bon-card">
+          <div class="bon-head">
+            <span>${group.shift}<span class="shift-jam">${jamShift ? "(" + jamShift + ")" : ""}</span> · ${group.divisi ? group.divisi + " · " : ""}Line ${group.line} · ${group.nama_pembuat}</span>
+            <span>${group.tanggal}</span>
           </div>
+          <div class="bon-sub">
+            <span>${group.nama_produk}</span>
+            <span>No BON: ${group.no_bon || group.items[0]?.no_bon || ""}</span>
+          </div>
+          <table class="item-table">
+            <thead>
+              <tr>
+                <th style="width:28%">Nama PM</th>
+                <th style="width:12%">QTY BON</th>
+                <th style="width:8%">UOM</th>
+                <th style="width:12%">Terkirim</th>
+                <th style="width:12%">Status</th>
+                <th style="width:12%">Sistem</th>
+                <th style="width:16%">Approval</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+      group.items
+        .filter((item) => Number(item.qty_bon) > 0)
+        .forEach((item) => {
+        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+        const sudahLunas = totalKirim >= Number(item.qty_bon);
+        const sudahCeklis = isSudahCeklis(item.no_bon, item.material_code);
+        const approvalItem = getApprovalItem(item.no_bon, item.material_code);
+        let approvalLabel = "-";
+        let approvalClass = "kurang";
+        if (approvalItem?.status === "Approved") {
+          approvalLabel = "✓ Disetujui";
+          approvalClass = "ok";
+        } else if (approvalItem?.status === "Rejected") {
+          approvalLabel = "✗ Ditolak";
+          approvalClass = "rejected";
+        }
+        html += `
+              <tr>
+                <td>${item.nama_pm}</td>
+                <td>${item.qty_bon}</td>
+                <td>${item.uom}</td>
+                <td class="${sudahLunas ? "ok" : "kurang"}">${totalKirim}</td>
+                <td class="${sudahLunas ? "ok" : "kurang"}">${sudahLunas ? "✓ Lunas" : "Belum Lunas"}</td>
+                <td class="${sudahCeklis ? "ok" : "kurang"}">${sudahCeklis ? "✓ Sudah" : "Belum"}</td>
+                <td class="${approvalClass}">${approvalLabel}</td>
+              </tr>
         `;
       });
-
-      bodyHtml += `
-        <div class="print-footer">Dicetak pada: ${new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB</div>
+      html += `
+            </tbody>
+          </table>
+          <div class="ttd-wrap">
+            <div class="ttd-box">
+              <div class="ttd-label">TTD Pembuat</div>
+              <div class="ttd-line">${group.nama_pembuat || ""}</div>
+            </div>
+            <div class="ttd-box">
+              <div class="ttd-label">TTD Penerima (Pengawas)</div>
+              <div class="ttd-line">&nbsp;</div>
+            </div>
+          </div>
+        </div>
       `;
+    });
 
-      // Inject style ke <head> sementara.
-      const styleEl = document.createElement("style");
-      styleEl.setAttribute("data-pdf-style", "true");
-      styleEl.innerHTML = cssText;
-      document.head.appendChild(styleEl);
+    html += `
+        <div class="print-footer">Dicetak pada: ${new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB</div>
+      </body>
+      </html>
+    `;
 
-      // Container dirender di luar layar (bukan display:none, supaya
-      // html2canvas tetap bisa mengukur & menggambar elemen dengan benar).
-      const container = document.createElement("div");
-      container.id = "laporan-pdf-container";
-      container.style.position = "fixed";
-      container.style.left = "-9999px";
-      container.style.top = "0";
-      container.style.width = "190mm";
-      container.style.background = "#ffffff";
-      container.innerHTML = bodyHtml;
-      document.body.appendChild(container);
+    return html;
+  };
 
-      const namaFileDivisi = filterDivisi ? "_" + filterDivisi.replace(/\s+/g, "") : "";
-      const namaFileLine = filterLine ? "_Line" + filterLine : "";
-      const namaFile = `Laporan_BON_PM_${filterTanggal}${namaFileDivisi}${namaFileLine}.pdf`;
+  // Mode "Lihat": buka laporan di tab baru untuk dipreview saja, TIDAK
+  // otomatis memicu dialog print. User bisa print/save-as-pdf manual dari
+  // tab tersebut kalau mau (Ctrl+P / menu browser).
+  const handleViewPDF = () => {
+    const html = buildLaporanHtml();
+    const win = window.open("", "_blank");
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+  };
 
-      try {
-        const html2pdfModule = await import("html2pdf.js");
-        const html2pdf = html2pdfModule.default || html2pdfModule;
-        await html2pdf()
-          .set({
-            margin: [12, 10, 12, 10],
-            filename: namaFile,
-            image: { type: "jpeg", quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-            jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-            pagebreak: { mode: ["css", "legacy"], avoid: ".bon-card" },
-          })
-          .from(container)
-          .save();
-      } finally {
-        document.body.removeChild(container);
-        document.head.removeChild(styleEl);
-      }
-    } catch (err) {
-      console.error(err);
-      setPesan("❌ Gagal membuat PDF: " + (err?.message || "Terjadi kesalahan"));
-    } finally {
-      setDownloadingPdf(false);
-    }
+  // Mode "Print": buka laporan di tab baru dan langsung memicu dialog print
+  // browser, dari situ user bisa pilih "Save as PDF" untuk download.
+  const handlePrintPDF = () => {
+    const html = buildLaporanHtml();
+    const win = window.open("", "_blank");
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.onload = () => win.print();
+    setTimeout(() => win.print(), 300);
   };
 
   return (
@@ -1076,13 +1054,20 @@ export default function Home() {
               </select>
               <input type="date" className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterTanggal} onChange={(e) => setFilterTanggal(e.target.value)} />
               {history.length > 0 && (
-                <button
-                  onClick={handleDownloadPDF}
-                  disabled={downloadingPdf}
-                  className="bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap"
-                >
-                  {downloadingPdf ? "⏳ Membuat PDF..." : "📄 PDF"}
-                </button>
+                <>
+                  <button
+                    onClick={handleViewPDF}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap"
+                  >
+                    👁️ Lihat
+                  </button>
+                  <button
+                    onClick={handlePrintPDF}
+                    className="bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap"
+                  >
+                    📄 Print/PDF
+                  </button>
+                </>
               )}
             </div>
           </div>
