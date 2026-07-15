@@ -931,7 +931,7 @@ export default function Home() {
                           <tr key={p.material_code} className="border-t">
                             <td className="px-2 py-2 text-xs">{p.material_code}</td>
                             <td className="px-2 py-2 text-xs">{p.nama_pm}</td>
-                            <td className="px-2 py-2 text-xs">{p.uom}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(p.uom)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[p.material_code] || ""} onChange={(e) => handleQtyChange(p.material_code, e.target.value)} /></td>
                           </tr>
                         ))
