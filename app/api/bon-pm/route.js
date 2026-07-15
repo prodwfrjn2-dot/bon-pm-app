@@ -43,11 +43,15 @@ export async function POST(request) {
     // oleh user. Rentang jam berbeda khusus hari Sabtu.
     const shift = getShiftSekarangPM();
 
-    // UOM khusus divisi Formulasi selalu "KG", terlepas dari UOM asli di
-    // sheet BOM/Plastik. Override dilakukan di sini (server, saat simpan)
-    // supaya konsisten otomatis di History & PDF, karena keduanya membaca
-    // UOM langsung dari data yang tersimpan di sheet BON_PM.
-    const uomOverride = divisi === "Formulasi" ? "KG" : null;
+    // UOM "KG" HANYA berlaku untuk bahan Plastik (nama diawali "PLS") DAN
+    // divisinya Formulasi/Central Kitchen. Item PLS yang sama dipilih dari
+    // divisi lain (mis. Wafer Flat via Tujuan=Plastik) tetap pakai UOM
+    // aslinya (PCS). Override dilakukan per-item di sini (server, saat
+    // simpan) supaya konsisten otomatis di History & PDF, karena keduanya
+    // membaca UOM langsung dari data yang tersimpan di sheet BON_PM.
+    const isBahanPlastik = (nama) => (nama || "").trim().toUpperCase().startsWith("PLS");
+    const DIVISI_UOM_KG = ["Formulasi", "Central Kitchen"];
+    const pakaiKg = DIVISI_UOM_KG.includes(divisi);
 
     const bonRows = items.map((item) => [
       no_bon,
@@ -60,7 +64,7 @@ export async function POST(request) {
       item.material_code,
       item.nama_pm,
       item.qty_bon,
-      uomOverride || item.uom,
+      pakaiKg && isBahanPlastik(item.nama_pm) ? "KG" : item.uom,
       tujuan,
       keterangan,
       divisi || "-",

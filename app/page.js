@@ -78,8 +78,13 @@ export default function Home() {
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Divisi yang tidak memakai Line Produksi (field disembunyikan & tidak wajib)
-  const DIVISI_TANPA_LINE = ["Formulasi"];
+  const DIVISI_TANPA_LINE = ["Formulasi", "Central Kitchen"];
   const perluLine = !DIVISI_TANPA_LINE.includes(divisi);
+
+  // Divisi yang Tujuannya otomatis dikunci ke "Plastik" saja (opsi lain
+  // disembunyikan dari dropdown Tujuan).
+  const DIVISI_TUJUAN_PLASTIK_SAJA = ["Formulasi", "Central Kitchen"];
+  const tujuanTerkunciPlastik = DIVISI_TUJUAN_PLASTIK_SAJA.includes(divisi);
 
   const [modalKirim, setModalKirim] = useState(null);
   const [qtyKirim, setQtyKirim] = useState("");
@@ -277,8 +282,20 @@ export default function Home() {
     setSelectedTapes([]);
     setBomList([]);
     // Reset Line setiap ganti divisi supaya tidak nyangkut nilai lama,
-    // terutama saat pindah ke/dari divisi yang tidak pakai Line (Formulasi).
+    // terutama saat pindah ke/dari divisi yang tidak pakai Line (Formulasi,
+    // Central Kitchen).
     setLine("");
+    // Divisi Formulasi & Central Kitchen hanya boleh Tujuan "Plastik" —
+    // otomatis di-set supaya user tidak perlu pilih manual, dan mencegah
+    // state lama (misal "Ekspor") nyangkut dari divisi sebelumnya.
+    const DIVISI_TUJUAN_PLASTIK_SAJA_LOCAL = ["Formulasi", "Central Kitchen"];
+    if (DIVISI_TUJUAN_PLASTIK_SAJA_LOCAL.includes(value)) {
+      setTujuan("Plastik");
+    } else if (tujuan === "Plastik" && !DIVISI_TUJUAN_PLASTIK_SAJA_LOCAL.includes(value)) {
+      // Pindah dari divisi terkunci-Plastik ke divisi lain: reset Tujuan
+      // supaya user memilih ulang (Plastik tetap valid pilihan manual juga).
+      setTujuan("");
+    }
   };
 
   const handleProdukChange = (e) => {
@@ -318,7 +335,13 @@ export default function Home() {
   // Divisi Formulasi selalu memakai UOM "KG", terlepas dari UOM asli di
   // sheet BOM. Ini hanya untuk TAMPILAN di form (nilai final yang benar-benar
   // disimpan tetap di-override lagi di server saat submit, lihat api/bon-pm).
-  const uomTampil = (uomAsli) => (divisi === "Formulasi" ? "KG" : uomAsli);
+  // UOM "KG" HANYA berlaku untuk bahan Plastik (nama diawali "PLS") DAN
+  // divisinya Formulasi/Central Kitchen. Kalau item PLS yang sama dipilih
+  // dari divisi lain (Wafer Flat/Wafer Stick via Tujuan=Plastik), UOM tetap
+  // PCS seperti aslinya di sheet.
+  const isBahanPlastik = (nama) => (nama || "").trim().toUpperCase().startsWith("PLS");
+  const uomTampil = (uomAsli, namaPm) =>
+    isBahanPlastik(namaPm) && DIVISI_TANPA_LINE.includes(divisi) ? "KG" : uomAsli;
 
   const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
   const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
@@ -601,13 +624,20 @@ export default function Home() {
   // Laporan PDF dicetak dalam format potrait A4, rapi untuk arsip fisik:
   // margin standar, tabel per-BON dengan keterangan shift + rentang jam,
   // dan 2 kolom tanda tangan (Pembuat & Penerima) di setiap grup.
-  const handleDownloadPDF = () => {
+  // Menghasilkan HTML laporan saja (tanpa membuka tab / trigger print).
+  // Dipakai bersama oleh "Lihat PDF" dan "Download PDF" supaya isi laporan
+  // selalu identik, cuma beda perilaku setelah tab terbuka.
+  const generateHtmlLaporan = () => {
     // FIX BUG: grouping HARUS pakai no_bon (unik per submission), bukan
     // kombinasi shift-line-nama. Kombinasi itu bisa sama persis untuk BON
     // yang berbeda (nama & line sama, disubmit beberapa menit berselang),
     // sehingga item dari BON yang berbeda-beda tercampur jadi satu grup.
     const grouped = history
-      .filter((row) => filterLine === "" || row.line === filterLine)
+      .filter(
+        (row) =>
+          (filterLine === "" || row.line === filterLine) &&
+          (filterDivisi === "" || row.divisi === filterDivisi)
+      )
       .reduce((acc, row) => {
         const key = row.no_bon;
         if (!acc[key]) acc[key] = { ...row, items: [] };
@@ -745,7 +775,7 @@ export default function Home() {
       <body>
         <div class="header">
           <h1>📋 Laporan BON PM</h1>
-          <p class="sub">${tanggalFormatted}${filterLine ? " · Line " + filterLine : ""}</p>
+          <p class="sub">${tanggalFormatted}${filterDivisi ? " · " + filterDivisi : ""}${filterLine ? " · Line " + filterLine : ""}</p>
         </div>
     `;
 
@@ -826,6 +856,27 @@ export default function Home() {
       </html>
     `;
 
+    return html;
+  };
+
+  // "Lihat PDF": buka laporan di tab baru sebagai halaman biasa (bisa
+  // di-scroll & dibaca dulu), TANPA langsung memicu dialog print/save.
+  // User bisa pakai Ctrl+P / menu browser sendiri kalau mau mencetak dari
+  // situ.
+  const handleLihatPDF = () => {
+    const html = generateHtmlLaporan();
+    const win = window.open("", "_blank");
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+  };
+
+  // "Download PDF": tetap seperti perilaku lama — buka tab baru lalu
+  // langsung memicu dialog print, dari situ user pilih "Save as PDF" untuk
+  // mengunduh filenya (browser tidak mengizinkan generate .pdf langsung
+  // tanpa dialog print/save karena ini murni HTML+CSS, bukan file PDF asli).
+  const handleDownloadPDF = () => {
+    const html = generateHtmlLaporan();
     const win = window.open("", "_blank");
     win.document.write(html);
     win.document.close();
@@ -857,7 +908,7 @@ export default function Home() {
   );
 
   // Urutan tampilan section saat "Semua Divisi" dipilih.
-  const URUTAN_DIVISI = ["Wafer Flat", "Wafer Stick", "Formulasi"];
+  const URUTAN_DIVISI = ["Wafer Flat", "Wafer Stick", "Formulasi", "Central Kitchen"];
 
   const sectionsPerDivisi =
     filterDivisi !== ""
@@ -909,6 +960,7 @@ export default function Home() {
                 <option value="Wafer Flat">Wafer Flat</option>
                 <option value="Wafer Stick">Wafer Stick</option>
                 <option value="Formulasi">Formulasi</option>
+                <option value="Central Kitchen">Central Kitchen</option>
               </select>
             </div>
             <div>
@@ -938,11 +990,22 @@ export default function Home() {
               <label className="block text-sm font-medium mb-1">Tujuan</label>
               <select className="w-full border rounded-lg px-3 py-2 text-sm" value={tujuan} onChange={(e) => { setTujuan(e.target.value); setQtyMap({}); setSelectedTapes([]); }}>
                 <option value="">-- Pilih Tujuan --</option>
-                <option value="Ekspor">Ekspor</option>
-                <option value="Lokal">Lokal</option>
-                <option value="Trial">Trial</option>
-                <option value="Plastik">Plastik</option>
+                {tujuanTerkunciPlastik ? (
+                  <option value="Plastik">Plastik</option>
+                ) : (
+                  <>
+                    <option value="Ekspor">Ekspor</option>
+                    <option value="Lokal">Lokal</option>
+                    <option value="Trial">Trial</option>
+                    <option value="Plastik">Plastik</option>
+                  </>
+                )}
               </select>
+              {tujuanTerkunciPlastik && (
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Divisi ini hanya bisa mengajukan Tujuan Plastik.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Keterangan</label>
@@ -992,7 +1055,7 @@ export default function Home() {
                           <tr key={p.material_code} className="border-t">
                             <td className="px-2 py-2 text-xs">{p.material_code}</td>
                             <td className="px-2 py-2 text-xs">{p.nama_pm}</td>
-                            <td className="px-2 py-2 text-xs">{uomTampil(p.uom)}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(p.uom, p.nama_pm)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[p.material_code] || ""} onChange={(e) => handleQtyChange(p.material_code, e.target.value)} /></td>
                           </tr>
                         ))
@@ -1007,7 +1070,7 @@ export default function Home() {
                           <tr key={b.material_code} className="border-t">
                             <td className="px-2 py-2 text-xs">{b.material_code}</td>
                             <td className="px-2 py-2 text-xs">{b.nama_pm}</td>
-                            <td className="px-2 py-2 text-xs">{uomTampil(b.uom)}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(b.uom, b.nama_pm)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[b.material_code] || ""} onChange={(e) => handleQtyChange(b.material_code, e.target.value)} /></td>
                           </tr>
                         ))}
@@ -1018,7 +1081,7 @@ export default function Home() {
                               <button onClick={() => handleRemoveTape(t.material_code)} className="text-red-400 hover:text-red-600 font-bold text-xs">✕</button>
                               {t.nama_pm}
                             </td>
-                            <td className="px-2 py-2 text-xs">{uomTampil(t.uom)}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(t.uom, t.nama_pm)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={t.qty || ""} onChange={(e) => handleTapeQty(t.material_code, e.target.value)} /></td>
                           </tr>
                         ))}
@@ -1045,6 +1108,7 @@ export default function Home() {
                 <option value="Wafer Flat">Wafer Flat</option>
                 <option value="Wafer Stick">Wafer Stick</option>
                 <option value="Formulasi">Formulasi</option>
+                <option value="Central Kitchen">Central Kitchen</option>
               </select>
               <select className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterLine} onChange={(e) => setFilterLine(e.target.value)}>
                 <option value="">Semua Line</option>
@@ -1052,9 +1116,14 @@ export default function Home() {
               </select>
               <input type="date" className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterTanggal} onChange={(e) => setFilterTanggal(e.target.value)} />
               {history.length > 0 && (
-                <button onClick={handleDownloadPDF} className="bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap">
-                  📄 PDF
-                </button>
+                <>
+                  <button onClick={handleLihatPDF} className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap">
+                    👁️ Lihat PDF
+                  </button>
+                  <button onClick={handleDownloadPDF} className="bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap">
+                    📄 Download PDF
+                  </button>
+                </>
               )}
             </div>
           </div>
