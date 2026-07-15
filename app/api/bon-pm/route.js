@@ -37,11 +37,17 @@ export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { no_bon, tanggal, nama_pembuat, line, tujuan, keterangan, sku_produk, items } = body;
+    const { no_bon, tanggal, nama_pembuat, line, tujuan, keterangan, sku_produk, divisi, items } = body;
 
     // Shift ditentukan otomatis dari jam submit (WIB), bukan dipilih manual
     // oleh user. Rentang jam berbeda khusus hari Sabtu.
     const shift = getShiftSekarangPM();
+
+    // UOM khusus divisi Formulasi selalu "KG", terlepas dari UOM asli di
+    // sheet BOM/Plastik. Override dilakukan di sini (server, saat simpan)
+    // supaya konsisten otomatis di History & PDF, karena keduanya membaca
+    // UOM langsung dari data yang tersimpan di sheet BON_PM.
+    const uomOverride = divisi === "Formulasi" ? "KG" : null;
 
     const bonRows = items.map((item) => [
       no_bon,
@@ -54,7 +60,7 @@ export async function POST(request) {
       item.material_code,
       item.nama_pm,
       item.qty_bon,
-      item.uom,
+      uomOverride || item.uom,
       tujuan,
       keterangan,
     ]);

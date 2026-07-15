@@ -314,6 +314,11 @@ export default function Home() {
     return n.includes("PACKING TAPE") || n.includes("TTR") || n.includes("CATRIDGE") || n.includes("THERMAL TRANSFER");
   };
 
+  // Divisi Formulasi selalu memakai UOM "KG", terlepas dari UOM asli di
+  // sheet BOM. Ini hanya untuk TAMPILAN di form (nilai final yang benar-benar
+  // disimpan tetap di-override lagi di server saat submit, lihat api/bon-pm).
+  const uomTampil = (uomAsli) => (divisi === "Formulasi" ? "KG" : uomAsli);
+
   const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
   const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
 
@@ -941,7 +946,7 @@ export default function Home() {
                           <tr key={b.material_code} className="border-t">
                             <td className="px-2 py-2 text-xs">{b.material_code}</td>
                             <td className="px-2 py-2 text-xs">{b.nama_pm}</td>
-                            <td className="px-2 py-2 text-xs">{b.uom}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(b.uom)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[b.material_code] || ""} onChange={(e) => handleQtyChange(b.material_code, e.target.value)} /></td>
                           </tr>
                         ))}
@@ -952,7 +957,7 @@ export default function Home() {
                               <button onClick={() => handleRemoveTape(t.material_code)} className="text-red-400 hover:text-red-600 font-bold text-xs">✕</button>
                               {t.nama_pm}
                             </td>
-                            <td className="px-2 py-2 text-xs">{t.uom}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(t.uom)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={t.qty || ""} onChange={(e) => handleTapeQty(t.material_code, e.target.value)} /></td>
                           </tr>
                         ))}
