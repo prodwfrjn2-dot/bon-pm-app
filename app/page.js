@@ -330,12 +330,20 @@ export default function Home() {
     return n.includes("PACKING TAPE") || n.includes("TTR") || n.includes("CATRIDGE") || n.includes("THERMAL TRANSFER");
   };
 
-  // Divisi Formulasi & Central Kitchen selalu memakai UOM "KG", terlepas
-  // dari UOM asli di sheet BOM. Ini hanya untuk TAMPILAN di form (nilai
-  // final yang benar-benar disimpan tetap di-override lagi di server saat
-  // submit, lihat api/bon-pm).
-  const uomTampil = (uomAsli) =>
-    (divisi === "Formulasi" || divisi === "Central Kitchen") ? "KG" : uomAsli;
+  // Divisi Formulasi & Central Kitchen memakai UOM "KG" HANYA untuk bahan
+  // plastik film (kode/nama diawali "PLS"). Bahan lain di masterlist
+  // Plastik seperti PACKING TAPE, TTR/CATRIDGE, dsb TETAP pakai UOM asli
+  // dari data (misal ROLL/M), karena satuannya memang bukan berat.
+  // Ini hanya untuk TAMPILAN di form (nilai final yang benar-benar
+  // disimpan tetap di-override lagi di server saat submit, lihat api/bon-pm).
+  const isBahanPlastikFilm = (namaPm) => {
+    const n = (namaPm || "").toUpperCase().trim();
+    return n.startsWith("PLS");
+  };
+  const uomTampil = (uomAsli, namaPm) =>
+    (divisi === "Formulasi" || divisi === "Central Kitchen") && isBahanPlastikFilm(namaPm)
+      ? "KG"
+      : uomAsli;
 
   const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
   const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
@@ -795,7 +803,9 @@ export default function Home() {
             </thead>
             <tbody>
       `;
-      group.items.forEach((item) => {
+      group.items
+        .filter((item) => Number(item.qty_bon) > 0)
+        .forEach((item) => {
         const totalKirim = getTotalKirim(item.no_bon, item.material_code);
         const sudahLunas = totalKirim >= Number(item.qty_bon);
         const sudahCeklis = isSudahCeklis(item.no_bon, item.material_code);
@@ -967,7 +977,7 @@ export default function Home() {
                           <tr key={p.material_code} className="border-t">
                             <td className="px-2 py-2 text-xs">{p.material_code}</td>
                             <td className="px-2 py-2 text-xs">{p.nama_pm}</td>
-                            <td className="px-2 py-2 text-xs">{uomTampil(p.uom)}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(p.uom, p.nama_pm)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[p.material_code] || ""} onChange={(e) => handleQtyChange(p.material_code, e.target.value)} /></td>
                           </tr>
                         ))
@@ -982,7 +992,7 @@ export default function Home() {
                           <tr key={b.material_code} className="border-t">
                             <td className="px-2 py-2 text-xs">{b.material_code}</td>
                             <td className="px-2 py-2 text-xs">{b.nama_pm}</td>
-                            <td className="px-2 py-2 text-xs">{uomTampil(b.uom)}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(b.uom, b.nama_pm)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={qtyMap[b.material_code] || ""} onChange={(e) => handleQtyChange(b.material_code, e.target.value)} /></td>
                           </tr>
                         ))}
@@ -993,7 +1003,7 @@ export default function Home() {
                               <button onClick={() => handleRemoveTape(t.material_code)} className="text-red-400 hover:text-red-600 font-bold text-xs">✕</button>
                               {t.nama_pm}
                             </td>
-                            <td className="px-2 py-2 text-xs">{uomTampil(t.uom)}</td>
+                            <td className="px-2 py-2 text-xs">{uomTampil(t.uom, t.nama_pm)}</td>
                             <td className="px-2 py-2"><input type="number" className="border rounded px-2 py-1 w-16 text-xs" placeholder="0" value={t.qty || ""} onChange={(e) => handleTapeQty(t.material_code, e.target.value)} /></td>
                           </tr>
                         ))}
@@ -1082,7 +1092,9 @@ export default function Home() {
                         </tr>
                       </thead>
                       <tbody>
-                        {group.items.map((item, i) => {
+                        {group.items
+                          .filter((item) => Number(item.qty_bon) > 0)
+                          .map((item, i) => {
                           const totalKirim = getTotalKirim(item.no_bon, item.material_code);
                           const sudahLunas = totalKirim >= Number(item.qty_bon);
                           const ceklisInfo = isSudahCeklis(item.no_bon, item.material_code);
