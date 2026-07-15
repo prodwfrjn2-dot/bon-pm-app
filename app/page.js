@@ -71,6 +71,10 @@ export default function Home() {
   const [filterLine, setFilterLine] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // Divisi yang tidak memakai Line Produksi (field disembunyikan & tidak wajib)
+  const DIVISI_TANPA_LINE = ["Formulasi"];
+  const perluLine = !DIVISI_TANPA_LINE.includes(divisi);
+
   const [modalKirim, setModalKirim] = useState(null);
   const [qtyKirim, setQtyKirim] = useState("");
   const [namaKirim, setNamaKirim] = useState("");
@@ -244,10 +248,14 @@ export default function Home() {
   };
 
   const handleDivisiChange = (e) => {
-    setDivisi(e.target.value);
+    const value = e.target.value;
+    setDivisi(value);
     setQtyMap({});
     setSelectedTapes([]);
     setBomList([]);
+    // Reset Line setiap ganti divisi supaya tidak nyangkut nilai lama,
+    // terutama saat pindah ke/dari divisi yang tidak pakai Line (Formulasi).
+    setLine("");
   };
 
   const handleProdukChange = (e) => {
@@ -295,7 +303,9 @@ export default function Home() {
   };
 
   const handleSubmit = async () => {
-    if (!divisi || !selectedSku || !namaPembuat || !line || !tujuan) {
+    // Line Produksi wajib diisi KECUALI untuk divisi yang ada di
+    // DIVISI_TANPA_LINE (misalnya "Formulasi").
+    if (!divisi || !selectedSku || !namaPembuat || !tujuan || (perluLine && !line)) {
       setPesan("⚠️ Lengkapi semua field terlebih dahulu!");
       return;
     }
@@ -321,7 +331,10 @@ export default function Home() {
         no_bon: generateNoBon(),
         tanggal: new Date().toLocaleDateString("id-ID"),
         nama_pembuat: namaPembuat,
-        line, tujuan, keterangan,
+        // Untuk divisi tanpa Line (Formulasi), kirim "-" supaya kolom Line
+        // di Sheet tetap konsisten (tidak kosong/undefined).
+        line: perluLine ? line : "-",
+        tujuan, keterangan,
         sku_produk: selectedSku,
         nama_produk: selectedNama,
         divisi,
@@ -779,13 +792,14 @@ export default function Home() {
                 <option value="">-- Pilih Divisi --</option>
                 <option value="Wafer Flat">Wafer Flat</option>
                 <option value="Wafer Stick">Wafer Stick</option>
+                <option value="Formulasi">Formulasi</option>
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Nama Pembuat</label>
               <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaPembuat} onChange={(e) => setNamaPembuat(e.target.value)} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={perluLine ? "grid grid-cols-2 gap-3" : "grid grid-cols-1 gap-3"}>
               <div>
                 <label className="block text-sm font-medium mb-1">Shift (Otomatis)</label>
                 <div className="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700">
@@ -795,10 +809,12 @@ export default function Home() {
                   Ditentukan otomatis dari jam saat ini. {new Date().toLocaleDateString("en-US", { timeZone: "Asia/Jakarta", weekday: "short" }) === "Sat" ? "Hari Sabtu memakai jam kerja lebih singkat." : ""}
                 </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Line Produksi</label>
-                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="No. Line" value={line} onChange={(e) => setLine(e.target.value)} />
-              </div>
+              {perluLine && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Line Produksi</label>
+                  <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="No. Line" value={line} onChange={(e) => setLine(e.target.value)} />
+                </div>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 mb-4">
