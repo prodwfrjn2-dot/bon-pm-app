@@ -434,6 +434,11 @@ export default function Home() {
       body: JSON.stringify({
         no_bon: generateNoBon(),
         tanggal: new Date().toLocaleDateString("id-ID"),
+        jam: new Date().toLocaleTimeString("id-ID", {
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: "Asia/Jakarta",
+        }),
         nama_pembuat: namaPembuat,
         // Untuk divisi tanpa Line (Formulasi), kirim "-" supaya kolom Line
         // di Sheet tetap konsisten (tidak kosong/undefined).
@@ -666,7 +671,7 @@ export default function Home() {
       .filter(
         (row) =>
           (filterLine === "" || row.line === filterLine) &&
-          (filterDivisi === "" || row.divisi === filterDivisi)
+          (filterDivisi === "" || normDivisi(row.divisi) === normDivisi(filterDivisi))
       )
       .reduce((acc, row) => {
         const key = row.no_bon;
@@ -739,6 +744,11 @@ export default function Home() {
             font-size: 8.5px;
             opacity: 0.85;
             margin-left: 4px;
+          }
+          .bon-head .jam-dibuat {
+            font-weight: normal;
+            font-size: 9px;
+            opacity: 0.9;
           }
           .bon-sub {
             background: #f3f4f6;
@@ -819,7 +829,7 @@ export default function Home() {
         <div class="bon-card">
           <div class="bon-head">
             <span>${group.shift}<span class="shift-jam">${jamShift ? "(" + jamShift + ")" : ""}</span> · Line ${group.line} · ${group.nama_pembuat}</span>
-            <span>${group.tanggal}</span>
+            <span>${group.tanggal}${group.jam ? ` <span class="jam-dibuat">· ${group.jam} WIB</span>` : ""}</span>
           </div>
           <div class="bon-sub">
             <span>${group.nama_produk}</span>
@@ -926,10 +936,16 @@ export default function Home() {
   // 3) Kalau filter Divisi = "Semua Divisi", bungkus grup-grup itu lagi jadi
   //    3 section (Wafer Flat / Wafer Stick / Formulasi / Lainnya) supaya
   //    tampilannya terorganisir per divisi.
+
+  // Normalisasi nama divisi untuk dibandingkan (trim + lowercase), supaya
+  // filter & pengelompokan tidak gagal hanya karena beda spasi/kapitalisasi
+  // antara data di Sheet dengan opsi dropdown ("Wafer Flat" vs "wafer flat ").
+  const normDivisi = (v) => (v || "").toString().trim().toLowerCase();
+
   const historyTerfilter = history.filter(
     (row) =>
       (filterLine === "" || row.line === filterLine) &&
-      (filterDivisi === "" || row.divisi === filterDivisi)
+      (filterDivisi === "" || normDivisi(row.divisi) === normDivisi(filterDivisi))
   );
 
   const groupedByNoBon = Object.entries(
@@ -955,7 +971,8 @@ export default function Home() {
           const bucket = {};
           groupedByNoBon.forEach(([key, group]) => {
             const namaDivisiMentah = group.divisi && group.divisi.trim() !== "" ? group.divisi.trim() : "";
-            const namaDivisi = URUTAN_DIVISI.includes(namaDivisiMentah) ? namaDivisiMentah : "Lainnya";
+            const cocok = URUTAN_DIVISI.find((d) => normDivisi(d) === normDivisi(namaDivisiMentah));
+            const namaDivisi = cocok || "Lainnya";
             if (!bucket[namaDivisi]) bucket[namaDivisi] = [];
             bucket[namaDivisi].push([key, group]);
           });
@@ -1464,7 +1481,7 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
     <div className="border rounded-lg overflow-hidden">
       <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
         <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
-        <span>{group.tanggal}</span>
+        <span>{group.tanggal}{group.jam ? ` · ${group.jam}` : ""}</span>
       </div>
       <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{group.nama_produk}</div>
       {getItemBelumSelesai(group).length > 0 && (
