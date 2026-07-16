@@ -43,6 +43,13 @@ export async function POST(request) {
     // oleh user. Rentang jam berbeda khusus hari Sabtu.
     const shift = getShiftSekarangPM();
 
+    // DEBUG SEMENTARA: log ke Vercel Function Logs supaya bisa dipastikan
+    // apakah field `divisi` benar-benar terkirim dari frontend saat submit.
+    // Cek di Vercel Dashboard > Project > Deployments > (deployment aktif)
+    // > Functions > /api/bon-pm setelah submit BON baru.
+    console.log("[api/bon-pm] body diterima:", JSON.stringify(body));
+    console.log("[api/bon-pm] divisi diterima:", divisi);
+
     // UOM "KG" HANYA berlaku untuk bahan Plastik (nama diawali "PLS") DAN
     // divisinya Formulasi/Central Kitchen. Item PLS yang sama dipilih dari
     // divisi lain (mis. Wafer Flat via Tujuan=Plastik) tetap pakai UOM
