@@ -133,6 +133,14 @@ export default function Home() {
   const [kirimPesan, setKirimPesan] = useState("");
   const [riwayatKirim, setRiwayatKirim] = useState({});
 
+  // ==== State untuk Kirim Terpilih (checkbox multi-item, qty tetap manual per item) ====
+  const [selectedKirim, setSelectedKirim] = useState({}); // { [no_bon]: Set(material_code) }
+  const [modalKirimBatch, setModalKirimBatch] = useState(null); // { no_bon, items: [{material_code, nama_pm, uom, qty_bon, sisa, qty}] }
+  const [namaKirimBatch, setNamaKirimBatch] = useState("");
+  const [passwordKirimBatch, setPasswordKirimBatch] = useState("");
+  const [kirimBatchLoading, setKirimBatchLoading] = useState(false);
+  const [kirimBatchPesan, setKirimBatchPesan] = useState("");
+
   const [modalCeklis, setModalCeklis] = useState(null);
   const [passwordCeklis, setPasswordCeklis] = useState("");
   const [ceklisLoading, setCeklisLoading] = useState(false);
@@ -266,6 +274,34 @@ export default function Home() {
     const res = await fetch(`/api/pengiriman?no_bon=${no_bon}`);
     const data = await res.json();
     setRiwayatKirim((prev) => ({ ...prev, [no_bon]: data.data || [] }));
+  };
+
+  // ==== Helper untuk checkbox "Kirim Terpilih" ====
+  const isSelectedKirim = (no_bon, material_code) => {
+    const set = selectedKirim[no_bon];
+    return set ? set.has(material_code) : false;
+  };
+
+  const toggleSelectKirim = (no_bon, material_code) => {
+    setSelectedKirim((prev) => {
+      const current = new Set(prev[no_bon] || []);
+      if (current.has(material_code)) current.delete(material_code);
+      else current.add(material_code);
+      return { ...prev, [no_bon]: current };
+    });
+  };
+
+  const toggleSelectAllKirim = (no_bon, materialCodes, selectAll) => {
+    setSelectedKirim((prev) => ({
+      ...prev,
+      [no_bon]: selectAll ? new Set(materialCodes) : new Set(),
+    }));
+  };
+
+  const getSelectedCountKirim = (no_bon) => (selectedKirim[no_bon] ? selectedKirim[no_bon].size : 0);
+
+  const clearSelectedKirim = (no_bon) => {
+    setSelectedKirim((prev) => ({ ...prev, [no_bon]: new Set() }));
   };
 
   const fetchStatusCeklis = async (no_bon) => {
@@ -609,6 +645,96 @@ export default function Home() {
     } else {
       setKirimPesan("❌ " + data.error);
     }
+  };
+
+  // Buka modal "Kirim Terpilih" untuk item-item yang sudah dicentang di satu
+  // grup BON. Qty tiap item DI-ISI OTOMATIS dengan sisa qty-nya (asumsi
+  // dikirim penuh sekaligus), tapi tetap bisa diedit manual per item kalau
+  // ternyata cuma dikirim sebagian.
+  const handleOpenKirimBatch = (group) => {
+    const selected = selectedKirim[group.no_bon] || new Set();
+    const items = group.items
+      .filter((item) => selected.has(item.material_code))
+      .map((item) => {
+        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+        const sisa = Number(item.qty_bon) - totalKirim;
+        return {
+          no_bon: item.no_bon,
+          material_code: item.material_code,
+          nama_pm: item.nama_pm,
+          uom: item.uom,
+          qty_bon: item.qty_bon,
+          sisa,
+          qty: sisa,
+        };
+      })
+      .filter((it) => it.sisa > 0);
+    if (items.length === 0) return;
+    setModalKirimBatch({ no_bon: group.no_bon, items });
+    setNamaKirimBatch("");
+    setPasswordKirimBatch("");
+    setKirimBatchPesan("");
+  };
+
+  const handleQtyKirimBatchChange = (material_code, val) => {
+    setModalKirimBatch((prev) => ({
+      ...prev,
+      items: prev.items.map((it) => (it.material_code === material_code ? { ...it, qty: val } : it)),
+    }));
+  };
+
+  // Kirim SEMUA item terpilih sekaligus (paralel), masing-masing tetap
+  // lewat endpoint /api/pengiriman yang sama seperti kirim satu-satu — jadi
+  // validasi password & sisa qty di backend tetap berlaku persis sama.
+  const handleKirimBatch = async () => {
+    if (!namaKirimBatch.trim()) { setKirimBatchPesan("⚠️ Nama pengirim wajib diisi!"); return; }
+    if (!passwordKirimBatch) { setKirimBatchPesan("⚠️ Password wajib diisi!"); return; }
+    const invalid = modalKirimBatch.items.find(
+      (it) => !it.qty || Number(it.qty) <= 0 || Number(it.qty) > it.sisa
+    );
+    if (invalid) {
+      setKirimBatchPesan(`⚠️ Qty "${invalid.nama_pm}" tidak valid (maksimal sisa ${invalid.sisa} ${invalid.uom}).`);
+      return;
+    }
+
+    setKirimBatchLoading(true); setKirimBatchPesan("");
+    try {
+      const hasil = await Promise.all(
+        modalKirimBatch.items.map((it) =>
+          fetch("/api/pengiriman", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              no_bon: modalKirimBatch.no_bon,
+              material_code: it.material_code,
+              nama_pm: it.nama_pm,
+              qty_kirim: Number(it.qty),
+              nama_pembuat: namaKirimBatch,
+              password: passwordKirimBatch,
+              qty_bon: it.qty_bon,
+            }),
+          }).then((r) => r.json())
+        )
+      );
+      const gagal = hasil.filter((h) => !h.success);
+      if (gagal.length > 0) {
+        setKirimBatchPesan(
+          `⚠️ ${hasil.length - gagal.length}/${hasil.length} berhasil. Gagal: ${gagal.map((g) => g.error).join("; ")}`
+        );
+      } else {
+        setKirimBatchPesan(`✅ ${hasil.length} item berhasil dicatat terkirim sekaligus.`);
+      }
+      fetchRiwayatKirim(modalKirimBatch.no_bon);
+      if (gagal.length === 0) {
+        clearSelectedKirim(modalKirimBatch.no_bon);
+        setTimeout(() => {
+          setModalKirimBatch(null); setNamaKirimBatch(""); setPasswordKirimBatch(""); setKirimBatchPesan("");
+        }, 1500);
+      }
+    } catch (e) {
+      setKirimBatchPesan("❌ " + e.message);
+    }
+    setKirimBatchLoading(false);
   };
 
   const handleOpenCeklis = (item) => {
@@ -1192,6 +1318,12 @@ export default function Home() {
     handleOpenApproval,
     getKlasterApprovalBerbarengan,
     handleOpenApprovalBatch,
+    isSelectedKirim,
+    toggleSelectKirim,
+    toggleSelectAllKirim,
+    getSelectedCountKirim,
+    clearSelectedKirim,
+    handleOpenKirimBatch,
   };
 
   return (
@@ -1541,6 +1673,59 @@ export default function Home() {
         </div>
       )}
 
+      {/* Modal Kirim Terpilih (checkbox multi-item) */}
+      {modalKirimBatch && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-1">🚚 Kirim Beberapa Item</h3>
+            <p className="text-xs text-gray-500 mb-3">No BON: {modalKirimBatch.no_bon}</p>
+
+            <div className="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-2 space-y-2 max-h-48 overflow-y-auto">
+              {modalKirimBatch.items.map((it) => (
+                <div key={it.material_code} className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-orange-800 flex-1">
+                    {it.nama_pm} <span className="text-orange-400">(sisa {it.sisa} {it.uom})</span>
+                  </span>
+                  <input
+                    type="number"
+                    className="border rounded px-2 py-1 w-16 text-xs"
+                    value={it.qty}
+                    onChange={(e) => handleQtyKirimBatchChange(it.material_code, e.target.value)}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-3 mb-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama Pengirim</label>
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaKirimBatch} onChange={(e) => setNamaKirimBatch(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Password</label>
+                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password" value={passwordKirimBatch} onChange={(e) => setPasswordKirimBatch(e.target.value)} />
+              </div>
+            </div>
+            {kirimBatchPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{kirimBatchPesan}</div>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setModalKirimBatch(null); setNamaKirimBatch(""); setPasswordKirimBatch(""); setKirimBatchPesan(""); }}
+                className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
+              >
+                Tutup
+              </button>
+              <button
+                onClick={handleKirimBatch}
+                disabled={kirimBatchLoading}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl py-2 text-sm"
+              >
+                {kirimBatchLoading ? "Menyimpan..." : `🚚 Kirim ${modalKirimBatch.items.length} Item`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Ceklis per Item */}
       {modalCeklis && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1753,6 +1938,12 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
     handleOpenApproval,
     getKlasterApprovalBerbarengan,
     handleOpenApprovalBatch,
+    isSelectedKirim,
+    toggleSelectKirim,
+    toggleSelectAllKirim,
+    getSelectedCountKirim,
+    clearSelectedKirim,
+    handleOpenKirimBatch,
   } = helpers;
 
   // Item dengan qty_bon 0/null/kosong tidak usah ditampilkan sama sekali.
@@ -1791,6 +1982,22 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
           </button>
         </div>
       ))}
+      {getSelectedCountKirim(group.no_bon) > 0 && (
+        <div className="px-3 py-2 bg-orange-50 border-y border-orange-200 text-xs text-orange-800 flex items-center justify-between flex-wrap gap-2">
+          <span>🚚 {getSelectedCountKirim(group.no_bon)} item dipilih untuk dikirim sekaligus</span>
+          <div className="flex gap-2">
+            <button onClick={() => clearSelectedKirim(group.no_bon)} className="text-orange-600 text-xs underline">
+              Batal Pilih
+            </button>
+            <button
+              onClick={() => handleOpenKirimBatch(group)}
+              className="bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
+            >
+              🚚 Kirim Terpilih
+            </button>
+          </div>
+        </div>
+      )}
       {/* FIX: tabel dibungkus wrapper overflow-x-auto terpisah supaya
           bisa di-scroll horizontal di layar sempit (mobile), bukan
           terpotong oleh overflow-hidden pada card di atasnya. */}
@@ -1798,6 +2005,22 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
         <table className="w-full text-xs min-w-[520px]">
           <thead className="bg-gray-100">
             <tr>
+              <th className="text-left px-2 py-1">
+                {(() => {
+                  const undeliveredCodes = itemsTampil
+                    .filter((item) => getTotalKirim(item.no_bon, item.material_code) < Number(item.qty_bon))
+                    .map((item) => item.material_code);
+                  if (undeliveredCodes.length === 0) return null;
+                  const allSelected = undeliveredCodes.every((code) => isSelectedKirim(group.no_bon, code));
+                  return (
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={() => toggleSelectAllKirim(group.no_bon, undeliveredCodes, !allSelected)}
+                    />
+                  );
+                })()}
+              </th>
               <th className="text-left px-2 py-1">Kode</th>
               <th className="text-left px-2 py-1">Nama PM</th>
               <th className="text-left px-2 py-1">BON</th>
@@ -1822,6 +2045,15 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
               return (
                 <>
                   <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
+                    <td className="px-2 py-1">
+                      {totalKirim < Number(item.qty_bon) && (
+                        <input
+                          type="checkbox"
+                          checked={isSelectedKirim(item.no_bon, item.material_code)}
+                          onChange={() => toggleSelectKirim(item.no_bon, item.material_code)}
+                        />
+                      )}
+                    </td>
                     <td className="px-2 py-1 text-gray-500">{item.material_code}</td>
                     <td className="px-2 py-1">{item.nama_pm}</td>
                     <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
@@ -1882,7 +2114,7 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
                   </tr>
                   {approvalInfo?.status === "Rejected" && (
                     <tr key={`${i}-rejected`} className="bg-red-50">
-                      <td colSpan={8} className="px-2 py-1 text-[11px] text-red-700">
+                      <td colSpan={9} className="px-2 py-1 text-[11px] text-red-700">
                         ✗ <b>Ditolak Pengawas ({approvalInfo.nama_approver}):</b> {approvalInfo.alasan_reject} — mohon segera diperbaiki oleh pembuat/pengirim BON.
                       </td>
                     </tr>
