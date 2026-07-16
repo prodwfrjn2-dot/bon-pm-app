@@ -828,7 +828,7 @@ export default function Home() {
       html += `
         <div class="bon-card">
           <div class="bon-head">
-            <span>${group.shift}<span class="shift-jam">${jamShift ? "(" + jamShift + ")" : ""}</span> · Line ${group.line} · ${group.nama_pembuat}</span>
+            <span>${group.shift}<span class="shift-jam">${jamShift ? "(" + jamShift + ")" : ""}</span>${group.line && group.line !== "-" ? " · Line " + group.line : ""} · ${group.nama_pembuat}</span>
             <span>${group.tanggal}${group.jam ? ` <span class="jam-dibuat">· ${group.jam} WIB</span>` : ""}</span>
           </div>
           <div class="bon-sub">
@@ -1495,7 +1495,7 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
   return (
     <div className="border rounded-lg overflow-hidden">
       <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
-        <span>{group.shift} · Line {group.line} · {group.nama_pembuat}</span>
+        <span>{group.shift}{group.line && group.line !== "-" ? ` · Line ${group.line}` : ""} · {group.nama_pembuat}</span>
         <span>{group.tanggal}{group.jam ? ` · ${group.jam}` : ""}</span>
       </div>
       <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{group.nama_produk}</div>

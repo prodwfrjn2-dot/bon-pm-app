@@ -6,11 +6,11 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const tanggal = searchParams.get("tanggal");
 
-    // Dibaca sampai kolom N (bukan K lagi) supaya kolom "divisi" yang baru
+    // Dibaca sampai kolom O supaya kolom "divisi" (N) dan "jam" (O) yang
     // ditambahkan di api/bon-pm/route.js ikut terbaca.
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "BON_PM!A2:N10000",
+      range: "BON_PM!A2:O10000",
     });
 
     const rows = response.data.values || [];
@@ -41,17 +41,11 @@ export async function GET(request) {
         // kolom N; ditandai "-" (Tidak Diketahui) supaya tetap muncul rapi
         // di grouping/filter, bukan hilang atau error.
         divisi: row[13] || "-",
+        // Jam BON dibuat (kolom O). BON lama sebelum kolom ini ada akan
+        // kosong — dibiarkan "" saja supaya tidak ditampilkan di UI
+        // (bukan ditulis "-", karena tanggal tanpa jam tetap wajar dibaca).
+        jam: row[14] || "",
       }));
-
-    // DEBUG SEMENTARA: cek di Vercel Function Logs (Dashboard > Project >
-    // Deployments > deployment aktif > Functions > /api/history) untuk
-    // memastikan kolom N (row[13]) benar-benar terbaca berisi nama divisi,
-    // bukan selalu kosong/"-". Hapus log ini setelah masalah terkonfirmasi
-    // selesai.
-    console.log(
-      "[api/history] contoh 3 baris pertama (no_bon, divisi mentah):",
-      rows.slice(0, 3).map((r) => ({ no_bon: r[0], divisi_mentah: r[13] }))
-    );
 
     return new Response(JSON.stringify({ success: true, data: filtered }), {
       status: 200,

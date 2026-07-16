@@ -37,18 +37,11 @@ export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { no_bon, tanggal, nama_pembuat, line, tujuan, keterangan, sku_produk, divisi, items } = body;
+    const { no_bon, tanggal, jam, nama_pembuat, line, tujuan, keterangan, sku_produk, divisi, items } = body;
 
     // Shift ditentukan otomatis dari jam submit (WIB), bukan dipilih manual
     // oleh user. Rentang jam berbeda khusus hari Sabtu.
     const shift = getShiftSekarangPM();
-
-    // DEBUG SEMENTARA: log ke Vercel Function Logs supaya bisa dipastikan
-    // apakah field `divisi` benar-benar terkirim dari frontend saat submit.
-    // Cek di Vercel Dashboard > Project > Deployments > (deployment aktif)
-    // > Functions > /api/bon-pm setelah submit BON baru.
-    console.log("[api/bon-pm] body diterima:", JSON.stringify(body));
-    console.log("[api/bon-pm] divisi diterima:", divisi);
 
     // UOM "KG" HANYA berlaku untuk bahan Plastik (nama diawali "PLS") DAN
     // divisinya Formulasi/Central Kitchen. Item PLS yang sama dipilih dari
@@ -75,11 +68,12 @@ export async function POST(request) {
       tujuan,
       keterangan,
       divisi || "-",
+      jam || "",
     ]);
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
-      range: "BON_PM!A:N",
+      range: "BON_PM!A:O",
       valueInputOption: "USER_ENTERED",
       requestBody: { values: bonRows },
     });
