@@ -77,6 +77,18 @@ function isHariIniClient(tanggalBonId) {
   return tanggalBonISO === tanggalBisnisISO;
 }
 
+// Parse string waktu format id-ID (hasil `Date.toLocaleString("id-ID", {timeZone:"Asia/Jakarta"})`,
+// contoh: "16/7/2026, 14.30.45") menjadi timestamp (ms). Dipakai HANYA untuk
+// menghitung SELISIH antar waktu (bukan waktu absolut), jadi offset timezone
+// tidak masalah selama semua timestamp diparse dengan cara yang sama.
+function parseWaktuIndo(str) {
+  if (!str) return null;
+  const match = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s*(\d{1,2})[.:](\d{2})[.:](\d{2})/);
+  if (!match) return null;
+  const [, d, m, y, h, mi, s] = match.map(Number);
+  return Date.UTC(y, m - 1, d, h, mi, s);
+}
+
 export default function Home() {
   const [divisi, setDivisi] = useState("");
   const [produkList, setProdukList] = useState([]);
@@ -144,6 +156,15 @@ export default function Home() {
   const [alasanReject, setAlasanReject] = useState("");
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [approvalPesan, setApprovalPesan] = useState("");
+
+  // ==== State untuk Approve Bersamaan (klaster item selesai kirim <10 menit) ====
+  const [modalApprovalBatch, setModalApprovalBatch] = useState(null); // { no_bon, items: [...] }
+  const [aksiApprovalBatch, setAksiApprovalBatch] = useState("Approved");
+  const [namaApproverBatch, setNamaApproverBatch] = useState("");
+  const [passwordApprovalBatch, setPasswordApprovalBatch] = useState("");
+  const [alasanRejectBatch, setAlasanRejectBatch] = useState("");
+  const [approvalBatchLoading, setApprovalBatchLoading] = useState(false);
+  const [approvalBatchPesan, setApprovalBatchPesan] = useState("");
 
   useEffect(() => {
     if (!divisi) {
@@ -297,6 +318,62 @@ export default function Home() {
   const getApprovalItem = (no_bon, material_code) => {
     const list = statusApproval[no_bon] || [];
     return list.find((a) => a.material_code === material_code);
+  };
+
+  // Waktu (ms) saat pengiriman item ini MENCAPAI qty_bon (lunas) — diambil
+  // dari jam_kirim pengiriman yang membuat total kumulatif >= qty_bon.
+  // Dipakai untuk mengetahui apakah beberapa item "selesai kirim" dalam
+  // waktu yang hampir berbarengan.
+  const getWaktuSelesaiKirim = (no_bon, material_code, qty_bon) => {
+    const riwayat = riwayatKirim[no_bon] || [];
+    const kirimanItem = riwayat.filter((r) => r.material_code === material_code);
+    let kumulatif = 0;
+    for (const r of kirimanItem) {
+      kumulatif += Number(r.qty_kirim || 0);
+      if (kumulatif >= Number(qty_bon)) {
+        return parseWaktuIndo(r.jam_kirim);
+      }
+    }
+    return null;
+  };
+
+  // Kelompokkan item dalam satu grup BON yang: (1) sudah lunas terkirim,
+  // (2) belum pernah di-approve/reject, dan (3) waktu selesai kirimnya
+  // berselisih <=10 menit secara berantai satu sama lain. Klaster dengan
+  // >1 item bisa di-approve sekaligus lewat satu tombol "Approve Bersama".
+  // Item yang belum lunas TIDAK PERNAH masuk klaster — tetap harus
+  // di-approve satu per satu setelah lunas.
+  const SEPULUH_MENIT_MS = 10 * 60 * 1000;
+  const getKlasterApprovalBerbarengan = (group) => {
+    const kandidat = group.items
+      .filter((item) => Number(item.qty_bon) > 0)
+      .filter((item) => {
+        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+        if (totalKirim < Number(item.qty_bon)) return false; // belum lunas
+        const approvalInfo = getApprovalItem(item.no_bon, item.material_code);
+        return !approvalInfo || !approvalInfo.status; // belum pernah diproses
+      })
+      .map((item) => ({
+        item,
+        waktu: getWaktuSelesaiKirim(item.no_bon, item.material_code, item.qty_bon),
+      }))
+      .filter((x) => x.waktu !== null)
+      .sort((a, b) => a.waktu - b.waktu);
+
+    const klaster = [];
+    let current = [];
+    kandidat.forEach((x) => {
+      if (current.length === 0 || x.waktu - current[current.length - 1].waktu <= SEPULUH_MENIT_MS) {
+        current.push(x);
+      } else {
+        klaster.push(current);
+        current = [x];
+      }
+    });
+    if (current.length > 0) klaster.push(current);
+
+    // Hanya klaster dengan >1 item yang layak ditawarkan approve bersamaan.
+    return klaster.filter((k) => k.length > 1).map((k) => k.map((x) => x.item));
   };
 
   // Definisi "sudah lunas" hanya dipakai untuk INFO tampilan (badge hijau di
@@ -683,6 +760,72 @@ export default function Home() {
     }
   };
 
+  // Buka modal Approve Bersamaan untuk satu klaster item (hasil dari
+  // getKlasterApprovalBerbarengan).
+  const handleOpenApprovalBatch = (items) => {
+    setModalApprovalBatch({ no_bon: items[0].no_bon, items });
+    setAksiApprovalBatch("Approved");
+    setNamaApproverBatch("");
+    setPasswordApprovalBatch("");
+    setAlasanRejectBatch("");
+    setApprovalBatchPesan("");
+  };
+
+  // Kirim approve/reject untuk SEMUA item dalam klaster sekaligus (paralel),
+  // masing-masing tetap lewat endpoint /api/approval-penerimaan yang sama
+  // seperti approve satu-satu — jadi validasi password & status di backend
+  // tetap berlaku persis sama, cuma dipanggil berkali-kali dari client.
+  const handleApprovalBatch = async () => {
+    if (!namaApproverBatch.trim()) { setApprovalBatchPesan("⚠️ Nama Pengawas wajib diisi!"); return; }
+    if (!passwordApprovalBatch) { setApprovalBatchPesan("⚠️ Password wajib diisi!"); return; }
+    if (aksiApprovalBatch === "Rejected" && !alasanRejectBatch.trim()) {
+      setApprovalBatchPesan("⚠️ Alasan penolakan wajib diisi!");
+      return;
+    }
+
+    setApprovalBatchLoading(true); setApprovalBatchPesan("");
+    try {
+      const hasil = await Promise.all(
+        modalApprovalBatch.items.map((item) =>
+          fetch("/api/approval-penerimaan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              no_bon: item.no_bon,
+              material_code: item.material_code,
+              status: aksiApprovalBatch,
+              alasan_reject: alasanRejectBatch,
+              nama_approver: namaApproverBatch,
+              password: passwordApprovalBatch,
+            }),
+          }).then((r) => r.json())
+        )
+      );
+      const gagal = hasil.filter((h) => !h.success);
+      if (gagal.length > 0) {
+        setApprovalBatchPesan(
+          `⚠️ ${hasil.length - gagal.length}/${hasil.length} berhasil. Gagal: ${gagal.map((g) => g.error).join("; ")}`
+        );
+      } else {
+        setApprovalBatchPesan(
+          aksiApprovalBatch === "Approved"
+            ? `✅ ${hasil.length} item berhasil disetujui sekaligus.`
+            : `✗ ${hasil.length} item ditolak sekaligus.`
+        );
+      }
+      fetchStatusApproval(modalApprovalBatch.no_bon);
+      if (gagal.length === 0) {
+        setTimeout(() => {
+          setModalApprovalBatch(null); setNamaApproverBatch(""); setPasswordApprovalBatch("");
+          setAlasanRejectBatch(""); setApprovalBatchPesan(""); setAksiApprovalBatch("Approved");
+        }, 1800);
+      }
+    } catch (e) {
+      setApprovalBatchPesan("❌ " + e.message);
+    }
+    setApprovalBatchLoading(false);
+  };
+
   // Laporan PDF dicetak dalam format potrait A4, rapi untuk arsip fisik:
   // margin standar, tabel per-BON dengan keterangan shift + rentang jam,
   // dan 2 kolom tanda tangan (Pembuat & Penerima) di setiap grup.
@@ -1047,6 +1190,8 @@ export default function Home() {
     handleOpenKirim,
     handleOpenCeklis,
     handleOpenApproval,
+    getKlasterApprovalBerbarengan,
+    handleOpenApprovalBatch,
   };
 
   return (
@@ -1499,6 +1644,93 @@ export default function Home() {
         </div>
       )}
 
+      {/* Modal Approve Bersamaan (klaster item selesai kirim <10 menit) */}
+      {modalApprovalBatch && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-1">⚡ Approve Bersamaan</h3>
+            <p className="text-xs text-gray-500 mb-3">No BON: {modalApprovalBatch.no_bon}</p>
+
+            <div className="mb-4 bg-purple-50 border border-purple-200 rounded-lg p-2">
+              <p className="text-[11px] text-purple-700 mb-1">
+                {modalApprovalBatch.items.length} item ini selesai terkirim dalam waktu hampir berbarengan (&lt;10 menit):
+              </p>
+              <ul className="text-xs text-purple-800 list-disc list-inside">
+                {modalApprovalBatch.items.map((it) => (
+                  <li key={it.material_code}>{it.nama_pm} — {it.qty_bon} {it.uom}</li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Toggle Approve / Reject */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setAksiApprovalBatch("Approved")}
+                className={`flex-1 rounded-xl py-2 text-sm font-bold border ${
+                  aksiApprovalBatch === "Approved"
+                    ? "bg-green-600 text-white border-green-600"
+                    : "bg-white text-gray-500 border-gray-300"
+                }`}
+              >
+                ✓ Setujui Semua
+              </button>
+              <button
+                onClick={() => setAksiApprovalBatch("Rejected")}
+                className={`flex-1 rounded-xl py-2 text-sm font-bold border ${
+                  aksiApprovalBatch === "Rejected"
+                    ? "bg-red-600 text-white border-red-600"
+                    : "bg-white text-gray-500 border-gray-300"
+                }`}
+              >
+                ✗ Tolak Semua
+              </button>
+            </div>
+
+            <div className="space-y-3 mb-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama Pengawas</label>
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={namaApproverBatch} onChange={(e) => setNamaApproverBatch(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Password</label>
+                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan password" value={passwordApprovalBatch} onChange={(e) => setPasswordApprovalBatch(e.target.value)} />
+              </div>
+              {aksiApprovalBatch === "Rejected" && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Alasan Penolakan (berlaku untuk semua item)</label>
+                  <textarea
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    rows={3}
+                    placeholder="Contoh: Qty fisik tidak sesuai BON"
+                    value={alasanRejectBatch}
+                    onChange={(e) => setAlasanRejectBatch(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            {approvalBatchPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{approvalBatchPesan}</div>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setModalApprovalBatch(null); setNamaApproverBatch(""); setPasswordApprovalBatch(""); setAlasanRejectBatch(""); setApprovalBatchPesan(""); setAksiApprovalBatch("Approved"); }}
+                className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleApprovalBatch}
+                disabled={approvalBatchLoading}
+                className={`flex-1 text-white font-bold rounded-xl py-2 text-sm ${
+                  aksiApprovalBatch === "Approved" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"
+                }`}
+              >
+                {approvalBatchLoading ? "Menyimpan..." : aksiApprovalBatch === "Approved" ? `✓ Setujui ${modalApprovalBatch.items.length} Item` : `✗ Tolak ${modalApprovalBatch.items.length} Item`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </main>
   );
 }
@@ -1519,6 +1751,8 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
     handleOpenKirim,
     handleOpenCeklis,
     handleOpenApproval,
+    getKlasterApprovalBerbarengan,
+    handleOpenApprovalBatch,
   } = helpers;
 
   // Item dengan qty_bon 0/null/kosong tidak usah ditampilkan sama sekali.
@@ -1544,6 +1778,19 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
           ⚠️ Pengiriman belum selesai untuk {getItemBelumSelesai(group).length} item PM: {getItemBelumSelesai(group).map((it) => it.nama_pm).join(", ")}
         </div>
       )}
+      {getKlasterApprovalBerbarengan(group).map((klaster, idx) => (
+        <div key={idx} className="px-3 py-2 bg-purple-50 border-y border-purple-200 text-xs text-purple-800 flex items-center justify-between flex-wrap gap-2">
+          <span>
+            ⚡ {klaster.length} item selesai kirim berbarengan (&lt;10 menit): {klaster.map((it) => it.nama_pm).join(", ")}
+          </span>
+          <button
+            onClick={() => handleOpenApprovalBatch(klaster)}
+            className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
+          >
+            ⚡ Approve Bersama
+          </button>
+        </div>
+      ))}
       {/* FIX: tabel dibungkus wrapper overflow-x-auto terpisah supaya
           bisa di-scroll horizontal di layar sempit (mobile), bukan
           terpotong oleh overflow-hidden pada card di atasnya. */}
