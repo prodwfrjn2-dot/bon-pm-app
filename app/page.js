@@ -758,6 +758,14 @@ export default function Home() {
             display: flex;
             justify-content: space-between;
           }
+          .bon-ket {
+            background: #fffbeb;
+            padding: 3px 8px;
+            font-size: 9px;
+            color: #92400e;
+            border-top: 1px solid #fde68a;
+            border-bottom: 1px solid #fde68a;
+          }
           table.item-table {
             width: 100%;
             border-collapse: collapse;
@@ -835,6 +843,7 @@ export default function Home() {
             <span>${group.nama_produk}</span>
             <span>No BON: ${group.no_bon || group.items[0]?.no_bon || ""}</span>
           </div>
+          ${group.keterangan ? `<div class="bon-ket">📝 ${group.keterangan}</div>` : ""}
           <table class="item-table">
             <thead>
               <tr>
@@ -1499,6 +1508,11 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
         <span>{group.tanggal}{group.jam ? ` · ${group.jam}` : ""}</span>
       </div>
       <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{group.nama_produk}</div>
+      {group.keterangan && (
+        <div className="px-3 py-1 bg-yellow-50 text-xs text-gray-600 italic">
+          📝 {group.keterangan}
+        </div>
+      )}
       {getItemBelumSelesai(group).length > 0 && (
         <div className="px-3 py-2 bg-amber-50 border-y border-amber-200 text-xs text-amber-800 font-medium">
           ⚠️ Pengiriman belum selesai untuk {getItemBelumSelesai(group).length} item PM: {getItemBelumSelesai(group).map((it) => it.nama_pm).join(", ")}
