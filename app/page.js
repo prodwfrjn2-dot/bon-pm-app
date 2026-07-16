@@ -671,7 +671,7 @@ export default function Home() {
       .filter(
         (row) =>
           (filterLine === "" || row.line === filterLine) &&
-          (filterDivisi === "" || normDivisi(row.divisi) === normDivisi(filterDivisi))
+          (filterDivisi === "" || normDivisi(getDivisiValue(row)) === normDivisi(filterDivisi))
       )
       .reduce((acc, row) => {
         const key = row.no_bon;
@@ -942,10 +942,24 @@ export default function Home() {
   // antara data di Sheet dengan opsi dropdown ("Wafer Flat" vs "wafer flat ").
   const normDivisi = (v) => (v || "").toString().trim().toLowerCase();
 
+  // Ambil nilai divisi dari sebuah row API secara case-insensitive terhadap
+  // NAMA KOLOMnya juga (bukan cuma nilainya). Ini penting karena kalau
+  // response API/Sheet mengembalikan key "Divisi"/"DIVISI"/dsb (beda huruf
+  // besar-kecil dari "divisi"), row.divisi akan selalu undefined walau
+  // datanya sebenarnya ada — dan filter tidak akan pernah cocok apa pun
+  // yang dipilih user. Fungsi ini mencari key manapun di row yang match
+  // "divisi" tanpa peduli huruf besar/kecil, sebagai fallback.
+  const getDivisiValue = (row) => {
+    if (!row) return "";
+    if (row.divisi !== undefined && row.divisi !== null && row.divisi !== "") return row.divisi;
+    const key = Object.keys(row).find((k) => k.toLowerCase() === "divisi");
+    return key ? row[key] : "";
+  };
+
   const historyTerfilter = history.filter(
     (row) =>
       (filterLine === "" || row.line === filterLine) &&
-      (filterDivisi === "" || normDivisi(row.divisi) === normDivisi(filterDivisi))
+      (filterDivisi === "" || normDivisi(getDivisiValue(row)) === normDivisi(filterDivisi))
   );
 
   const groupedByNoBon = Object.entries(
@@ -970,7 +984,8 @@ export default function Home() {
       : (() => {
           const bucket = {};
           groupedByNoBon.forEach(([key, group]) => {
-            const namaDivisiMentah = group.divisi && group.divisi.trim() !== "" ? group.divisi.trim() : "";
+            const divisiMentah = getDivisiValue(group);
+            const namaDivisiMentah = divisiMentah && divisiMentah.toString().trim() !== "" ? divisiMentah.toString().trim() : "";
             const cocok = URUTAN_DIVISI.find((d) => normDivisi(d) === normDivisi(namaDivisiMentah));
             const namaDivisi = cocok || "Lainnya";
             if (!bucket[namaDivisi]) bucket[namaDivisi] = [];
