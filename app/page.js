@@ -36,18 +36,45 @@ function getShiftSekarangPMClient() {
   return "Shift 3";
 }
 
-// Cek apakah tanggal BON (format DD/MM/YYYY) sama dengan hari ini (WIB).
-// Dipakai HANYA untuk membatasi Revisi (edit-bon). Tidak ada batas jam sama
-// sekali di BON PM — Catat Pengiriman & input BON baru tetap bebas.
-function isHariIniClient(tanggalBonId) {
+// Cek apakah tanggal BON (format DD/MM/YYYY) sama dengan "hari bisnis" saat
+// ini (WIB). Dipakai HANYA untuk membatasi Revisi (edit-bon). Tidak ada
+// batas jam lain di BON PM — Catat Pengiriman & input BON baru tetap bebas.
+//
+// PENTING: hari bisnis rollover di jam 07:00 (awal Shift 1), BUKAN jam
+// 00:00. Shift 3 berjalan 23:00-07:00, jadi BON yang dibuat jam 02:00 dini
+// hari harus tetap dianggap "hari yang sama" sampai jam 07:00 berikutnya —
+// logika ini harus sama persis dengan getTanggalBonPM() di server
+// (lib/waktuHelperPM.js) supaya tombol Edit di UI tidak ke-lock lebih cepat
+// dari validasi backend.
+function getTanggalBisnisISOClient() {
   const now = new Date();
-  const tanggalSekarangISO = now.toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+  const jamStr = now.toLocaleTimeString("en-GB", { timeZone: "Asia/Jakarta", hour12: false });
+  const [jam, menit] = jamStr.split(":").map(Number);
+  const totalMenit = jam * 60 + menit;
+  const S1_START = 7 * 60; // 07:00 — batas pergantian tanggal bisnis
+
+  const tanggalKalenderISO = now.toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+
+  if (totalMenit < S1_START) {
+    const [y, m, d] = tanggalKalenderISO.split("-").map(Number);
+    const kemarin = new Date(Date.UTC(y, m - 1, d));
+    kemarin.setUTCDate(kemarin.getUTCDate() - 1);
+    const yy = kemarin.getUTCFullYear();
+    const mm = String(kemarin.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(kemarin.getUTCDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  }
+  return tanggalKalenderISO;
+}
+
+function isHariIniClient(tanggalBonId) {
+  const tanggalBisnisISO = getTanggalBisnisISOClient();
   if (!tanggalBonId) return false;
   const parts = tanggalBonId.split("/");
   if (parts.length !== 3) return false;
   const [d, m, y] = parts;
   const tanggalBonISO = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-  return tanggalBonISO === tanggalSekarangISO;
+  return tanggalBonISO === tanggalBisnisISO;
 }
 
 export default function Home() {
@@ -764,7 +791,6 @@ export default function Home() {
             font-size: 9px;
             color: #92400e;
             border-top: 1px solid #fde68a;
-            border-bottom: 1px solid #fde68a;
           }
           table.item-table {
             width: 100%;

@@ -1,5 +1,5 @@
 import { getSheets, SHEET_ID } from "@/lib/googleSheets";
-import { getShiftSekarangPM } from "@/lib/waktuHelperPM";
+import { getShiftSekarangPM, getTanggalBonPM } from "@/lib/waktuHelperPM";
 
 export async function GET(request) {
   try {
@@ -37,11 +37,20 @@ export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { no_bon, tanggal, jam, nama_pembuat, line, tujuan, keterangan, sku_produk, divisi, items } = body;
+    const { no_bon, jam, nama_pembuat, line, tujuan, keterangan, sku_produk, divisi, items } = body;
 
     // Shift ditentukan otomatis dari jam submit (WIB), bukan dipilih manual
     // oleh user. Rentang jam berbeda khusus hari Sabtu.
     const shift = getShiftSekarangPM();
+
+    // Tanggal BON JUGA dihitung ulang di server, bukan dipakai mentah dari
+    // body (client). Ini "tanggal bisnis" dengan rollover jam 07:00 (awal
+    // Shift 1) — bukan rollover jam 00:00 seperti tanggal kalender biasa.
+    // Kenapa: Shift 3 berjalan 23:00-07:00, jadi BON yang dibuat misalnya
+    // jam 02:00 dini hari harus tetap tercatat di tanggal HARI SEBELUMNYA
+    // (tanggal shift itu dimulai), konsisten dengan getShiftSekarangPM(),
+    // dan tidak bisa dimanipulasi lewat jam perangkat client.
+    const tanggal = getTanggalBonPM();
 
     // UOM "KG" HANYA berlaku untuk bahan Plastik (nama diawali "PLS") DAN
     // divisinya Formulasi/Central Kitchen. Item PLS yang sama dipilih dari
@@ -87,7 +96,7 @@ export async function POST(request) {
       },
     });
 
-    return new Response(JSON.stringify({ success: true, message: "BON PM berhasil disimpan!", shift }), {
+    return new Response(JSON.stringify({ success: true, message: "BON PM berhasil disimpan!", shift, tanggal }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
