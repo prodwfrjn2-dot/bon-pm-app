@@ -2002,7 +2002,7 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
           bisa di-scroll horizontal di layar sempit (mobile), bukan
           terpotong oleh overflow-hidden pada card di atasnya. */}
       <div className="overflow-x-auto">
-        <table className="w-full text-xs min-w-[520px]">
+        <table className="w-full text-xs min-w-[620px]">
           <thead className="bg-gray-100">
             <tr>
               <th className="text-left px-2 py-1">
@@ -2025,10 +2025,10 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
               <th className="text-left px-2 py-1">Nama PM</th>
               <th className="text-left px-2 py-1">BON</th>
               <th className="text-left px-2 py-1">Krm</th>
-              <th className="text-left px-2 py-1">✏️</th>
-              <th className="text-left px-2 py-1">🚚</th>
-              <th className="text-left px-2 py-1">☑️</th>
-              <th className="text-left px-2 py-1">✔️</th>
+              <th className="text-left px-2 py-1">Edit</th>
+              <th className="text-left px-2 py-1">Kirim Fisik</th>
+              <th className="text-left px-2 py-1">Kirim Sistem</th>
+              <th className="text-left px-2 py-1">Terima Fisik</th>
             </tr>
           </thead>
           <tbody>
@@ -2060,35 +2060,51 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
                     <td className="px-2 py-1">
                       <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>{totalKirim}</span>
                     </td>
+                    {/* Tombol Edit — teks, badge kuning */}
                     <td className="px-2 py-1">
                       <button
                         onClick={() => handleOpenEdit(item)}
                         disabled={terkunci}
                         title={judulKunci}
-                        className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${
+                        className={`text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap ${
                           terkunci
                             ? "bg-gray-300 cursor-not-allowed"
                             : "bg-yellow-500 hover:bg-yellow-600"
                         }`}
                       >
-                        {terkunci ? "🔒" : "✏️"}
+                        {terkunci ? "Terkunci" : "Edit"}
                       </button>
                     </td>
+                    {/* Tombol Kirim Fisik — teks, badge oranye. Hilang (jadi —)
+                        begitu qty sudah lunas terkirim. */}
                     <td className="px-2 py-1">
-                      <button
-                        onClick={() => handleOpenKirim(item, group)}
-                        className={`text-white text-xs font-bold px-2 py-1 rounded-lg ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
-                      >
-                        {adaEdit ? "⚠️🚚" : "🚚"}
-                      </button>
+                      {sudahLunas ? (
+                        <span className="text-gray-300 text-xs">—</span>
+                      ) : (
+                        <button
+                          onClick={() => handleOpenKirim(item, group)}
+                          className={`text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
+                        >
+                          {adaEdit ? "⚠️ Kirim Fisik" : "Kirim Fisik"}
+                        </button>
+                      )}
                     </td>
+                    {/* Tombol Kirim Sistem — teks, badge indigo/ungu. Status
+                        sudah ceklis tetap tampil sebagai ikon centang hijau. */}
                     <td className="px-2 py-1">
                       {ceklisInfo ? (
                         <span className="text-green-600 font-bold text-xs">✅</span>
                       ) : (
-                        <button onClick={() => handleOpenCeklis(item)} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg">☑️</button>
+                        <button
+                          onClick={() => handleOpenCeklis(item)}
+                          className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
+                        >
+                          Kirim Sistem
+                        </button>
                       )}
                     </td>
+                    {/* Tombol Terima Fisik — teks untuk aksi yang belum
+                        diproses. Status hasil (approved/rejected) tetap ikon. */}
                     <td className="px-2 py-1">
                       {!sudahLunas ? (
                         <span className="text-gray-300 text-xs" title="Belum lunas terkirim">—</span>
@@ -2097,17 +2113,17 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
                       ) : approvalInfo?.status === "Rejected" ? (
                         <button
                           onClick={() => handleOpenApproval(item)}
-                          className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse"
+                          className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse whitespace-nowrap"
                           title={`Ditolak: ${approvalInfo.alasan_reject}`}
                         >
-                          ✗
+                          ✗ Ditolak
                         </button>
                       ) : (
                         <button
                           onClick={() => handleOpenApproval(item)}
-                          className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg"
+                          className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
                         >
-                          ✓/✗
+                          Terima Fisik
                         </button>
                       )}
                     </td>
