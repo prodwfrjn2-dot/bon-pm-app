@@ -147,6 +147,13 @@ export default function Home() {
   const [ceklisPesan, setCeklisPesan] = useState("");
   const [statusCeklis, setStatusCeklis] = useState({});
 
+  // ==== State untuk Ceklis Terpilih (checkbox multi-item "Kirim Sistem") ====
+  const [selectedCeklis, setSelectedCeklis] = useState({}); // { [no_bon]: Set(material_code) }
+  const [modalCeklisBatch, setModalCeklisBatch] = useState(null); // { no_bon, items: [{material_code, nama_pm}] }
+  const [passwordCeklisBatch, setPasswordCeklisBatch] = useState("");
+  const [ceklisBatchLoading, setCeklisBatchLoading] = useState(false);
+  const [ceklisBatchPesan, setCeklisBatchPesan] = useState("");
+
   const [modalEdit, setModalEdit] = useState(null);
   const [qtyEdit, setQtyEdit] = useState("");
   const [namaEditor, setNamaEditor] = useState("");
@@ -302,6 +309,34 @@ export default function Home() {
 
   const clearSelectedKirim = (no_bon) => {
     setSelectedKirim((prev) => ({ ...prev, [no_bon]: new Set() }));
+  };
+
+  // ==== Helper untuk checkbox "Kirim Sistem" (Ceklis Terpilih) ====
+  const isSelectedCeklis = (no_bon, material_code) => {
+    const set = selectedCeklis[no_bon];
+    return set ? set.has(material_code) : false;
+  };
+
+  const toggleSelectCeklis = (no_bon, material_code) => {
+    setSelectedCeklis((prev) => {
+      const current = new Set(prev[no_bon] || []);
+      if (current.has(material_code)) current.delete(material_code);
+      else current.add(material_code);
+      return { ...prev, [no_bon]: current };
+    });
+  };
+
+  const toggleSelectAllCeklis = (no_bon, materialCodes, selectAll) => {
+    setSelectedCeklis((prev) => ({
+      ...prev,
+      [no_bon]: selectAll ? new Set(materialCodes) : new Set(),
+    }));
+  };
+
+  const getSelectedCountCeklis = (no_bon) => (selectedCeklis[no_bon] ? selectedCeklis[no_bon].size : 0);
+
+  const clearSelectedCeklis = (no_bon) => {
+    setSelectedCeklis((prev) => ({ ...prev, [no_bon]: new Set() }));
   };
 
   const fetchStatusCeklis = async (no_bon) => {
@@ -763,6 +798,66 @@ export default function Home() {
     } else {
       setCeklisPesan("❌ " + data.error);
     }
+  };
+
+  // Buka modal "Ceklis Terpilih" (bulk "Kirim Sistem") untuk item-item yang
+  // sudah dicentang di satu grup BON. Hanya butuh 1x password untuk semua
+  // item, karena endpoint /api/ceklis tidak butuh nama pengirim.
+  const handleOpenCeklisBatch = (group) => {
+    const selected = selectedCeklis[group.no_bon] || new Set();
+    const items = group.items
+      .filter((item) => selected.has(item.material_code))
+      .map((item) => ({
+        no_bon: item.no_bon,
+        material_code: item.material_code,
+        nama_pm: item.nama_pm,
+      }));
+    if (items.length === 0) return;
+    setModalCeklisBatch({ no_bon: group.no_bon, items });
+    setPasswordCeklisBatch("");
+    setCeklisBatchPesan("");
+  };
+
+  // Ceklis SEMUA item terpilih sekaligus (paralel), masing-masing tetap
+  // lewat endpoint /api/ceklis yang sama seperti ceklis satu-satu — jadi
+  // validasi password di backend tetap berlaku persis sama.
+  const handleCeklisBatch = async () => {
+    if (!passwordCeklisBatch) { setCeklisBatchPesan("⚠️ Password wajib diisi!"); return; }
+
+    setCeklisBatchLoading(true); setCeklisBatchPesan("");
+    try {
+      const hasil = await Promise.all(
+        modalCeklisBatch.items.map((it) =>
+          fetch("/api/ceklis", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              no_bon: it.no_bon,
+              material_code: it.material_code,
+              password: passwordCeklisBatch,
+            }),
+          }).then((r) => r.json())
+        )
+      );
+      const gagal = hasil.filter((h) => !h.success);
+      if (gagal.length > 0) {
+        setCeklisBatchPesan(
+          `⚠️ ${hasil.length - gagal.length}/${hasil.length} berhasil. Gagal: ${gagal.map((g) => g.error).join("; ")}`
+        );
+      } else {
+        setCeklisBatchPesan(`✅ ${hasil.length} item berhasil diceklis sekaligus.`);
+      }
+      fetchStatusCeklis(modalCeklisBatch.no_bon);
+      if (gagal.length === 0) {
+        clearSelectedCeklis(modalCeklisBatch.no_bon);
+        setTimeout(() => {
+          setModalCeklisBatch(null); setPasswordCeklisBatch(""); setCeklisBatchPesan("");
+        }, 1500);
+      }
+    } catch (e) {
+      setCeklisBatchPesan("❌ " + e.message);
+    }
+    setCeklisBatchLoading(false);
   };
 
   const handleOpenEdit = (item) => {
@@ -1324,6 +1419,12 @@ export default function Home() {
     getSelectedCountKirim,
     clearSelectedKirim,
     handleOpenKirimBatch,
+    isSelectedCeklis,
+    toggleSelectCeklis,
+    toggleSelectAllCeklis,
+    getSelectedCountCeklis,
+    clearSelectedCeklis,
+    handleOpenCeklisBatch,
   };
 
   return (
@@ -1748,6 +1849,45 @@ export default function Home() {
         </div>
       )}
 
+      {/* Modal Ceklis Terpilih (checkbox multi-item "Kirim Sistem") */}
+      {modalCeklisBatch && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-1">☑️ Ceklis Beberapa Item</h3>
+            <p className="text-xs text-gray-500 mb-3">No BON: {modalCeklisBatch.no_bon}</p>
+
+            <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-lg p-2 space-y-1 max-h-48 overflow-y-auto">
+              {modalCeklisBatch.items.map((it) => (
+                <div key={it.material_code} className="text-xs text-indigo-800">
+                  • {it.nama_pm}
+                </div>
+              ))}
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">Password</label>
+              <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan password" value={passwordCeklisBatch} onChange={(e) => setPasswordCeklisBatch(e.target.value)} />
+            </div>
+            {ceklisBatchPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{ceklisBatchPesan}</div>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setModalCeklisBatch(null); setPasswordCeklisBatch(""); setCeklisBatchPesan(""); }}
+                className="flex-1 border rounded-xl py-2 text-sm text-gray-600"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleCeklisBatch}
+                disabled={ceklisBatchLoading}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-2 text-sm"
+              >
+                {ceklisBatchLoading ? "Menyimpan..." : `✅ Ceklis ${modalCeklisBatch.items.length} Item`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Approval Penerimaan (Pengawas) */}
       {modalApproval && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1944,6 +2084,12 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
     getSelectedCountKirim,
     clearSelectedKirim,
     handleOpenKirimBatch,
+    isSelectedCeklis,
+    toggleSelectCeklis,
+    toggleSelectAllCeklis,
+    getSelectedCountCeklis,
+    clearSelectedCeklis,
+    handleOpenCeklisBatch,
   } = helpers;
 
   // Item dengan qty_bon 0/null/kosong tidak usah ditampilkan sama sekali.
@@ -1998,6 +2144,22 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
           </div>
         </div>
       )}
+      {getSelectedCountCeklis(group.no_bon) > 0 && (
+        <div className="px-3 py-2 bg-indigo-50 border-y border-indigo-200 text-xs text-indigo-800 flex items-center justify-between flex-wrap gap-2">
+          <span>☑️ {getSelectedCountCeklis(group.no_bon)} item dipilih untuk diceklis sekaligus</span>
+          <div className="flex gap-2">
+            <button onClick={() => clearSelectedCeklis(group.no_bon)} className="text-indigo-600 text-xs underline">
+              Batal Pilih
+            </button>
+            <button
+              onClick={() => handleOpenCeklisBatch(group)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
+            >
+              ☑️ Ceklis Terpilih
+            </button>
+          </div>
+        </div>
+      )}
       {/* FIX: tabel dibungkus wrapper overflow-x-auto terpisah supaya
           bisa di-scroll horizontal di layar sempit (mobile), bukan
           terpotong oleh overflow-hidden pada card di atasnya. */}
@@ -2027,7 +2189,32 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
               <th className="text-left px-2 py-1">Krm</th>
               <th className="text-left px-2 py-1">Edit</th>
               <th className="text-left px-2 py-1">Kirim Fisik</th>
-              <th className="text-left px-2 py-1">Kirim Sistem</th>
+              <th className="text-left px-2 py-1">
+                <div className="flex items-center gap-1">
+                  <span>Kirim Sistem</span>
+                  {(() => {
+                    // Checkbox "select all" hanya mempertimbangkan item yang
+                    // ELIGIBLE untuk diceklis: sudah lunas terkirim & belum
+                    // pernah diceklis.
+                    const eligibleCodes = itemsTampil
+                      .filter((item) => {
+                        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+                        const sudahLunas = totalKirim >= Number(item.qty_bon);
+                        return sudahLunas && !isSudahCeklis(item.no_bon, item.material_code);
+                      })
+                      .map((item) => item.material_code);
+                    if (eligibleCodes.length === 0) return null;
+                    const allSelected = eligibleCodes.every((code) => isSelectedCeklis(group.no_bon, code));
+                    return (
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={() => toggleSelectAllCeklis(group.no_bon, eligibleCodes, !allSelected)}
+                      />
+                    );
+                  })()}
+                </div>
+              </th>
               <th className="text-left px-2 py-1">Terima Fisik</th>
             </tr>
           </thead>
@@ -2090,17 +2277,29 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
                       )}
                     </td>
                     {/* Tombol Kirim Sistem — teks, badge indigo/ungu. Status
-                        sudah ceklis tetap tampil sebagai ikon centang hijau. */}
+                        sudah ceklis tetap tampil sebagai ikon centang hijau.
+                        Checkbox HANYA muncul untuk item yang sudah lunas
+                        terkirim & belum diceklis, supaya bisa dipilih dan
+                        diceklis bersamaan lewat "Ceklis Terpilih". */}
                     <td className="px-2 py-1">
                       {ceklisInfo ? (
                         <span className="text-green-600 font-bold text-xs">✅</span>
+                      ) : sudahLunas ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={isSelectedCeklis(item.no_bon, item.material_code)}
+                            onChange={() => toggleSelectCeklis(item.no_bon, item.material_code)}
+                          />
+                          <button
+                            onClick={() => handleOpenCeklis(item)}
+                            className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
+                          >
+                            Kirim Sistem
+                          </button>
+                        </div>
                       ) : (
-                        <button
-                          onClick={() => handleOpenCeklis(item)}
-                          className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
-                        >
-                          Kirim Sistem
-                        </button>
+                        <span className="text-gray-300 text-xs" title="Belum lunas terkirim">—</span>
                       )}
                     </td>
                     {/* Tombol Terima Fisik — teks untuk aksi yang belum
