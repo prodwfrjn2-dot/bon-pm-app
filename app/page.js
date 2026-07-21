@@ -172,7 +172,8 @@ export default function Home() {
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [approvalPesan, setApprovalPesan] = useState("");
 
-  // ==== State untuk Approve Bersamaan (klaster item selesai kirim <10 menit) ====
+  // ==== State untuk Approve Bersamaan (klaster item selesai kirim <10 menit,
+  // ATAU dipilih manual lewat checkbox di kolom Terima Fisik) ====
   const [modalApprovalBatch, setModalApprovalBatch] = useState(null); // { no_bon, items: [...] }
   const [aksiApprovalBatch, setAksiApprovalBatch] = useState("Approved");
   const [namaApproverBatch, setNamaApproverBatch] = useState("");
@@ -180,6 +181,9 @@ export default function Home() {
   const [alasanRejectBatch, setAlasanRejectBatch] = useState("");
   const [approvalBatchLoading, setApprovalBatchLoading] = useState(false);
   const [approvalBatchPesan, setApprovalBatchPesan] = useState("");
+
+  // ==== State untuk checkbox manual "Terima Fisik" (pilih beberapa item lalu approve/reject sekaligus) ====
+  const [selectedApproval, setSelectedApproval] = useState({}); // { [no_bon]: Set(material_code) }
 
   useEffect(() => {
     if (!divisi) {
@@ -337,6 +341,34 @@ export default function Home() {
 
   const clearSelectedCeklis = (no_bon) => {
     setSelectedCeklis((prev) => ({ ...prev, [no_bon]: new Set() }));
+  };
+
+  // ==== Helper untuk checkbox "Terima Fisik" (approve/reject manual terpilih) ====
+  const isSelectedApproval = (no_bon, material_code) => {
+    const set = selectedApproval[no_bon];
+    return set ? set.has(material_code) : false;
+  };
+
+  const toggleSelectApproval = (no_bon, material_code) => {
+    setSelectedApproval((prev) => {
+      const current = new Set(prev[no_bon] || []);
+      if (current.has(material_code)) current.delete(material_code);
+      else current.add(material_code);
+      return { ...prev, [no_bon]: current };
+    });
+  };
+
+  const toggleSelectAllApproval = (no_bon, materialCodes, selectAll) => {
+    setSelectedApproval((prev) => ({
+      ...prev,
+      [no_bon]: selectAll ? new Set(materialCodes) : new Set(),
+    }));
+  };
+
+  const getSelectedCountApproval = (no_bon) => (selectedApproval[no_bon] ? selectedApproval[no_bon].size : 0);
+
+  const clearSelectedApproval = (no_bon) => {
+    setSelectedApproval((prev) => ({ ...prev, [no_bon]: new Set() }));
   };
 
   const fetchStatusCeklis = async (no_bon) => {
@@ -982,7 +1014,8 @@ export default function Home() {
   };
 
   // Buka modal Approve Bersamaan untuk satu klaster item (hasil dari
-  // getKlasterApprovalBerbarengan).
+  // getKlasterApprovalBerbarengan, otomatis) ATAU dari item-item hasil pilih
+  // manual lewat checkbox di kolom Terima Fisik (handleOpenApprovalBatchManual).
   const handleOpenApprovalBatch = (items) => {
     setModalApprovalBatch({ no_bon: items[0].no_bon, items });
     setAksiApprovalBatch("Approved");
@@ -990,6 +1023,15 @@ export default function Home() {
     setPasswordApprovalBatch("");
     setAlasanRejectBatch("");
     setApprovalBatchPesan("");
+  };
+
+  // Buka modal Approve Bersamaan dari item-item yang DIPILIH MANUAL lewat
+  // checkbox di kolom Terima Fisik satu grup BON.
+  const handleOpenApprovalBatchManual = (group) => {
+    const selected = selectedApproval[group.no_bon] || new Set();
+    const items = group.items.filter((item) => selected.has(item.material_code));
+    if (items.length === 0) return;
+    handleOpenApprovalBatch(items);
   };
 
   // Kirim approve/reject untuk SEMUA item dalam klaster sekaligus (paralel),
@@ -1036,6 +1078,7 @@ export default function Home() {
       }
       fetchStatusApproval(modalApprovalBatch.no_bon);
       if (gagal.length === 0) {
+        clearSelectedApproval(modalApprovalBatch.no_bon);
         setTimeout(() => {
           setModalApprovalBatch(null); setNamaApproverBatch(""); setPasswordApprovalBatch("");
           setAlasanRejectBatch(""); setApprovalBatchPesan(""); setAksiApprovalBatch("Approved");
@@ -1425,6 +1468,12 @@ export default function Home() {
     getSelectedCountCeklis,
     clearSelectedCeklis,
     handleOpenCeklisBatch,
+    isSelectedApproval,
+    toggleSelectApproval,
+    toggleSelectAllApproval,
+    getSelectedCountApproval,
+    clearSelectedApproval,
+    handleOpenApprovalBatchManual,
   };
 
   return (
@@ -2090,6 +2139,12 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
     getSelectedCountCeklis,
     clearSelectedCeklis,
     handleOpenCeklisBatch,
+    isSelectedApproval,
+    toggleSelectApproval,
+    toggleSelectAllApproval,
+    getSelectedCountApproval,
+    clearSelectedApproval,
+    handleOpenApprovalBatchManual,
   } = helpers;
 
   // Item dengan qty_bon 0/null/kosong tidak usah ditampilkan sama sekali.
@@ -2160,6 +2215,22 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
           </div>
         </div>
       )}
+      {getSelectedCountApproval(group.no_bon) > 0 && (
+        <div className="px-3 py-2 bg-purple-50 border-y border-purple-200 text-xs text-purple-800 flex items-center justify-between flex-wrap gap-2">
+          <span>✔️ {getSelectedCountApproval(group.no_bon)} item dipilih untuk diproses terima fisik sekaligus</span>
+          <div className="flex gap-2">
+            <button onClick={() => clearSelectedApproval(group.no_bon)} className="text-purple-600 text-xs underline">
+              Batal Pilih
+            </button>
+            <button
+              onClick={() => handleOpenApprovalBatchManual(group)}
+              className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
+            >
+              ✔️ Proses Terpilih
+            </button>
+          </div>
+        </div>
+      )}
       {/* FIX: tabel dibungkus wrapper overflow-x-auto terpisah supaya
           bisa di-scroll horizontal di layar sempit (mobile), bukan
           terpotong oleh overflow-hidden pada card di atasnya. */}
@@ -2167,28 +2238,30 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
         <table className="w-full text-xs min-w-[620px]">
           <thead className="bg-gray-100">
             <tr>
-              <th className="text-left px-2 py-1">
-                {(() => {
-                  const undeliveredCodes = itemsTampil
-                    .filter((item) => getTotalKirim(item.no_bon, item.material_code) < Number(item.qty_bon))
-                    .map((item) => item.material_code);
-                  if (undeliveredCodes.length === 0) return null;
-                  const allSelected = undeliveredCodes.every((code) => isSelectedKirim(group.no_bon, code));
-                  return (
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={() => toggleSelectAllKirim(group.no_bon, undeliveredCodes, !allSelected)}
-                    />
-                  );
-                })()}
-              </th>
               <th className="text-left px-2 py-1">Kode</th>
               <th className="text-left px-2 py-1">Nama PM</th>
               <th className="text-left px-2 py-1">BON</th>
               <th className="text-left px-2 py-1">Krm</th>
               <th className="text-left px-2 py-1">Edit</th>
-              <th className="text-left px-2 py-1">Kirim Fisik</th>
+              <th className="text-left px-2 py-1">
+                <div className="flex items-center gap-1">
+                  <span>Kirim Fisik</span>
+                  {(() => {
+                    const undeliveredCodes = itemsTampil
+                      .filter((item) => getTotalKirim(item.no_bon, item.material_code) < Number(item.qty_bon))
+                      .map((item) => item.material_code);
+                    if (undeliveredCodes.length === 0) return null;
+                    const allSelected = undeliveredCodes.every((code) => isSelectedKirim(group.no_bon, code));
+                    return (
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={() => toggleSelectAllKirim(group.no_bon, undeliveredCodes, !allSelected)}
+                      />
+                    );
+                  })()}
+                </div>
+              </th>
               <th className="text-left px-2 py-1">
                 <div className="flex items-center gap-1">
                   <span>Kirim Sistem</span>
@@ -2215,7 +2288,33 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
                   })()}
                 </div>
               </th>
-              <th className="text-left px-2 py-1">Terima Fisik</th>
+              <th className="text-left px-2 py-1">
+                <div className="flex items-center gap-1">
+                  <span>Terima Fisik</span>
+                  {(() => {
+                    // Checkbox "select all" hanya mempertimbangkan item yang
+                    // ELIGIBLE untuk diproses: sudah lunas terkirim & belum
+                    // pernah di-approve (status Approved final).
+                    const eligibleCodes = itemsTampil
+                      .filter((item) => {
+                        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
+                        const sudahLunas = totalKirim >= Number(item.qty_bon);
+                        const approvalInfo = getApprovalItem(item.no_bon, item.material_code);
+                        return sudahLunas && approvalInfo?.status !== "Approved";
+                      })
+                      .map((item) => item.material_code);
+                    if (eligibleCodes.length === 0) return null;
+                    const allSelected = eligibleCodes.every((code) => isSelectedApproval(group.no_bon, code));
+                    return (
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={() => toggleSelectAllApproval(group.no_bon, eligibleCodes, !allSelected)}
+                      />
+                    );
+                  })()}
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -2232,15 +2331,6 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
               return (
                 <>
                   <tr key={i} className={`border-t ${sudahLunas ? "bg-green-50" : ""}`}>
-                    <td className="px-2 py-1">
-                      {totalKirim < Number(item.qty_bon) && (
-                        <input
-                          type="checkbox"
-                          checked={isSelectedKirim(item.no_bon, item.material_code)}
-                          onChange={() => toggleSelectKirim(item.no_bon, item.material_code)}
-                        />
-                      )}
-                    </td>
                     <td className="px-2 py-1 text-gray-500">{item.material_code}</td>
                     <td className="px-2 py-1">{item.nama_pm}</td>
                     <td className="px-2 py-1">{item.qty_bon} {item.uom}</td>
@@ -2263,17 +2353,26 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
                       </button>
                     </td>
                     {/* Tombol Kirim Fisik — teks, badge oranye. Hilang (jadi —)
-                        begitu qty sudah lunas terkirim. */}
+                        begitu qty sudah lunas terkirim. Checkbox nempel di
+                        sebelah tombol supaya item bisa dipilih untuk dikirim
+                        bersamaan lewat "Kirim Terpilih". */}
                     <td className="px-2 py-1">
                       {sudahLunas ? (
                         <span className="text-gray-300 text-xs">—</span>
                       ) : (
-                        <button
-                          onClick={() => handleOpenKirim(item, group)}
-                          className={`text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
-                        >
-                          {adaEdit ? "⚠️ Kirim Fisik" : "Kirim Fisik"}
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={isSelectedKirim(item.no_bon, item.material_code)}
+                            onChange={() => toggleSelectKirim(item.no_bon, item.material_code)}
+                          />
+                          <button
+                            onClick={() => handleOpenKirim(item, group)}
+                            className={`text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap ${adaEdit ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"}`}
+                          >
+                            {adaEdit ? "⚠️ Kirim Fisik" : "Kirim Fisik"}
+                          </button>
+                        </div>
                       )}
                     </td>
                     {/* Tombol Kirim Sistem — teks, badge indigo/ungu. Status
@@ -2303,33 +2402,45 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
                       )}
                     </td>
                     {/* Tombol Terima Fisik — teks untuk aksi yang belum
-                        diproses. Status hasil (approved/rejected) tetap ikon. */}
+                        diproses. Status Approved final tetap ikon (tidak ada
+                        checkbox lagi karena tidak ada yang perlu diproses).
+                        Status Rejected & belum diproses tetap punya checkbox
+                        supaya bisa di-approve/reject ulang bersamaan. */}
                     <td className="px-2 py-1">
                       {!sudahLunas ? (
                         <span className="text-gray-300 text-xs" title="Belum lunas terkirim">—</span>
                       ) : approvalInfo?.status === "Approved" ? (
                         <span className="text-green-600 font-bold text-sm" title={`Disetujui oleh ${approvalInfo.nama_approver} · ${approvalInfo.waktu_approval}`}>✓</span>
-                      ) : approvalInfo?.status === "Rejected" ? (
-                        <button
-                          onClick={() => handleOpenApproval(item)}
-                          className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse whitespace-nowrap"
-                          title={`Ditolak: ${approvalInfo.alasan_reject}`}
-                        >
-                          ✗ Ditolak
-                        </button>
                       ) : (
-                        <button
-                          onClick={() => handleOpenApproval(item)}
-                          className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
-                        >
-                          Terima Fisik
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={isSelectedApproval(item.no_bon, item.material_code)}
+                            onChange={() => toggleSelectApproval(item.no_bon, item.material_code)}
+                          />
+                          {approvalInfo?.status === "Rejected" ? (
+                            <button
+                              onClick={() => handleOpenApproval(item)}
+                              className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-2 py-1 rounded-lg animate-pulse whitespace-nowrap"
+                              title={`Ditolak: ${approvalInfo.alasan_reject}`}
+                            >
+                              ✗ Ditolak
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleOpenApproval(item)}
+                              className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
+                            >
+                              Terima Fisik
+                            </button>
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>
                   {approvalInfo?.status === "Rejected" && (
                     <tr key={`${i}-rejected`} className="bg-red-50">
-                      <td colSpan={9} className="px-2 py-1 text-[11px] text-red-700">
+                      <td colSpan={8} className="px-2 py-1 text-[11px] text-red-700">
                         ✗ <b>Ditolak Pengawas ({approvalInfo.nama_approver}):</b> {approvalInfo.alasan_reject} — mohon segera diperbaiki oleh pembuat/pengirim BON.
                       </td>
                     </tr>
