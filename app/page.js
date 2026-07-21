@@ -172,8 +172,8 @@ export default function Home() {
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [approvalPesan, setApprovalPesan] = useState("");
 
-  // ==== State untuk Approve Bersamaan (klaster item selesai kirim <10 menit,
-  // ATAU dipilih manual lewat checkbox di kolom Terima Fisik) ====
+  // ==== State untuk Approve Bersamaan (dipilih manual lewat checkbox di
+  // kolom Terima Fisik) ====
   const [modalApprovalBatch, setModalApprovalBatch] = useState(null); // { no_bon, items: [...] }
   const [aksiApprovalBatch, setAksiApprovalBatch] = useState("Approved");
   const [namaApproverBatch, setNamaApproverBatch] = useState("");
@@ -421,62 +421,6 @@ export default function Home() {
   const getApprovalItem = (no_bon, material_code) => {
     const list = statusApproval[no_bon] || [];
     return list.find((a) => a.material_code === material_code);
-  };
-
-  // Waktu (ms) saat pengiriman item ini MENCAPAI qty_bon (lunas) — diambil
-  // dari jam_kirim pengiriman yang membuat total kumulatif >= qty_bon.
-  // Dipakai untuk mengetahui apakah beberapa item "selesai kirim" dalam
-  // waktu yang hampir berbarengan.
-  const getWaktuSelesaiKirim = (no_bon, material_code, qty_bon) => {
-    const riwayat = riwayatKirim[no_bon] || [];
-    const kirimanItem = riwayat.filter((r) => r.material_code === material_code);
-    let kumulatif = 0;
-    for (const r of kirimanItem) {
-      kumulatif += Number(r.qty_kirim || 0);
-      if (kumulatif >= Number(qty_bon)) {
-        return parseWaktuIndo(r.jam_kirim);
-      }
-    }
-    return null;
-  };
-
-  // Kelompokkan item dalam satu grup BON yang: (1) sudah lunas terkirim,
-  // (2) belum pernah di-approve/reject, dan (3) waktu selesai kirimnya
-  // berselisih <=10 menit secara berantai satu sama lain. Klaster dengan
-  // >1 item bisa di-approve sekaligus lewat satu tombol "Approve Bersama".
-  // Item yang belum lunas TIDAK PERNAH masuk klaster — tetap harus
-  // di-approve satu per satu setelah lunas.
-  const SEPULUH_MENIT_MS = 10 * 60 * 1000;
-  const getKlasterApprovalBerbarengan = (group) => {
-    const kandidat = group.items
-      .filter((item) => Number(item.qty_bon) > 0)
-      .filter((item) => {
-        const totalKirim = getTotalKirim(item.no_bon, item.material_code);
-        if (totalKirim < Number(item.qty_bon)) return false; // belum lunas
-        const approvalInfo = getApprovalItem(item.no_bon, item.material_code);
-        return !approvalInfo || !approvalInfo.status; // belum pernah diproses
-      })
-      .map((item) => ({
-        item,
-        waktu: getWaktuSelesaiKirim(item.no_bon, item.material_code, item.qty_bon),
-      }))
-      .filter((x) => x.waktu !== null)
-      .sort((a, b) => a.waktu - b.waktu);
-
-    const klaster = [];
-    let current = [];
-    kandidat.forEach((x) => {
-      if (current.length === 0 || x.waktu - current[current.length - 1].waktu <= SEPULUH_MENIT_MS) {
-        current.push(x);
-      } else {
-        klaster.push(current);
-        current = [x];
-      }
-    });
-    if (current.length > 0) klaster.push(current);
-
-    // Hanya klaster dengan >1 item yang layak ditawarkan approve bersamaan.
-    return klaster.filter((k) => k.length > 1).map((k) => k.map((x) => x.item));
   };
 
   // Definisi "sudah lunas" hanya dipakai untuk INFO tampilan (badge hijau di
@@ -766,23 +710,30 @@ export default function Home() {
 
     setKirimBatchLoading(true); setKirimBatchPesan("");
     try {
-      const hasil = await Promise.all(
-        modalKirimBatch.items.map((it) =>
-          fetch("/api/pengiriman", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              no_bon: modalKirimBatch.no_bon,
-              material_code: it.material_code,
-              nama_pm: it.nama_pm,
-              qty_kirim: Number(it.qty),
-              nama_pembuat: namaKirimBatch,
-              password: passwordKirimBatch,
-              qty_bon: it.qty_bon,
-            }),
-          }).then((r) => r.json())
-        )
-      );
+      // FIX BUG: sebelumnya semua item dikirim PARALEL lewat Promise.all,
+      // yang membuat banyak request menghantam Google Sheets API dalam
+      // waktu bersamaan dan kena rate limit ("Quota exceeded... per
+      // minute per user") — akibatnya sebagian item gagal tersimpan tanpa
+      // pesan yang jelas. Sekarang dikirim SEQUENTIAL (satu per satu,
+      // menunggu selesai sebelum lanjut item berikutnya) supaya semua
+      // item benar-benar tersimpan, meski jadi sedikit lebih lambat.
+      const hasil = [];
+      for (const it of modalKirimBatch.items) {
+        const r = await fetch("/api/pengiriman", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            no_bon: modalKirimBatch.no_bon,
+            material_code: it.material_code,
+            nama_pm: it.nama_pm,
+            qty_kirim: Number(it.qty),
+            nama_pembuat: namaKirimBatch,
+            password: passwordKirimBatch,
+            qty_bon: it.qty_bon,
+          }),
+        });
+        hasil.push(await r.json());
+      }
       const gagal = hasil.filter((h) => !h.success);
       if (gagal.length > 0) {
         setKirimBatchPesan(
@@ -858,19 +809,22 @@ export default function Home() {
 
     setCeklisBatchLoading(true); setCeklisBatchPesan("");
     try {
-      const hasil = await Promise.all(
-        modalCeklisBatch.items.map((it) =>
-          fetch("/api/ceklis", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              no_bon: it.no_bon,
-              material_code: it.material_code,
-              password: passwordCeklisBatch,
-            }),
-          }).then((r) => r.json())
-        )
-      );
+      // FIX BUG: dikirim SEQUENTIAL (bukan Promise.all paralel) supaya
+      // tidak kena rate limit Google Sheets API — lihat catatan di
+      // handleKirimBatch.
+      const hasil = [];
+      for (const it of modalCeklisBatch.items) {
+        const r = await fetch("/api/ceklis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            no_bon: it.no_bon,
+            material_code: it.material_code,
+            password: passwordCeklisBatch,
+          }),
+        });
+        hasil.push(await r.json());
+      }
       const gagal = hasil.filter((h) => !h.success);
       if (gagal.length > 0) {
         setCeklisBatchPesan(
@@ -1013,9 +967,8 @@ export default function Home() {
     }
   };
 
-  // Buka modal Approve Bersamaan untuk satu klaster item (hasil dari
-  // getKlasterApprovalBerbarengan, otomatis) ATAU dari item-item hasil pilih
-  // manual lewat checkbox di kolom Terima Fisik (handleOpenApprovalBatchManual).
+  // Buka modal Approve Bersamaan untuk item-item yang DIPILIH MANUAL lewat
+  // checkbox di kolom Terima Fisik (dipanggil dari handleOpenApprovalBatchManual).
   const handleOpenApprovalBatch = (items) => {
     setModalApprovalBatch({ no_bon: items[0].no_bon, items });
     setAksiApprovalBatch("Approved");
@@ -1034,7 +987,7 @@ export default function Home() {
     handleOpenApprovalBatch(items);
   };
 
-  // Kirim approve/reject untuk SEMUA item dalam klaster sekaligus (paralel),
+  // Kirim approve/reject untuk SEMUA item terpilih SECARA BERURUTAN (bukan paralel),
   // masing-masing tetap lewat endpoint /api/approval-penerimaan yang sama
   // seperti approve satu-satu — jadi validasi password & status di backend
   // tetap berlaku persis sama, cuma dipanggil berkali-kali dari client.
@@ -1048,22 +1001,25 @@ export default function Home() {
 
     setApprovalBatchLoading(true); setApprovalBatchPesan("");
     try {
-      const hasil = await Promise.all(
-        modalApprovalBatch.items.map((item) =>
-          fetch("/api/approval-penerimaan", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              no_bon: item.no_bon,
-              material_code: item.material_code,
-              status: aksiApprovalBatch,
-              alasan_reject: alasanRejectBatch,
-              nama_approver: namaApproverBatch,
-              password: passwordApprovalBatch,
-            }),
-          }).then((r) => r.json())
-        )
-      );
+      // FIX BUG: dikirim SEQUENTIAL (bukan Promise.all paralel) supaya
+      // tidak kena rate limit Google Sheets API — lihat catatan di
+      // handleKirimBatch.
+      const hasil = [];
+      for (const item of modalApprovalBatch.items) {
+        const r = await fetch("/api/approval-penerimaan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            no_bon: item.no_bon,
+            material_code: item.material_code,
+            status: aksiApprovalBatch,
+            alasan_reject: alasanRejectBatch,
+            nama_approver: namaApproverBatch,
+            password: passwordApprovalBatch,
+          }),
+        });
+        hasil.push(await r.json());
+      }
       const gagal = hasil.filter((h) => !h.success);
       if (gagal.length > 0) {
         setApprovalBatchPesan(
@@ -1454,7 +1410,6 @@ export default function Home() {
     handleOpenKirim,
     handleOpenCeklis,
     handleOpenApproval,
-    getKlasterApprovalBerbarengan,
     handleOpenApprovalBatch,
     isSelectedKirim,
     toggleSelectKirim,
@@ -2018,7 +1973,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Modal Approve Bersamaan (klaster item selesai kirim <10 menit) */}
+      {/* Modal Approve Bersamaan (item dipilih manual dari kolom Terima Fisik) */}
       {modalApprovalBatch && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
@@ -2125,7 +2080,6 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
     handleOpenKirim,
     handleOpenCeklis,
     handleOpenApproval,
-    getKlasterApprovalBerbarengan,
     handleOpenApprovalBatch,
     isSelectedKirim,
     toggleSelectKirim,
@@ -2170,19 +2124,6 @@ function HistoryGroupCard({ groupKey, group, helpers }) {
           ⚠️ Pengiriman belum selesai untuk {getItemBelumSelesai(group).length} item PM: {getItemBelumSelesai(group).map((it) => it.nama_pm).join(", ")}
         </div>
       )}
-      {getKlasterApprovalBerbarengan(group).map((klaster, idx) => (
-        <div key={idx} className="px-3 py-2 bg-purple-50 border-y border-purple-200 text-xs text-purple-800 flex items-center justify-between flex-wrap gap-2">
-          <span>
-            ⚡ {klaster.length} item selesai kirim berbarengan (&lt;10 menit): {klaster.map((it) => it.nama_pm).join(", ")}
-          </span>
-          <button
-            onClick={() => handleOpenApprovalBatch(klaster)}
-            className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap"
-          >
-            ⚡ Approve Bersama
-          </button>
-        </div>
-      ))}
       {getSelectedCountKirim(group.no_bon) > 0 && (
         <div className="px-3 py-2 bg-orange-50 border-y border-orange-200 text-xs text-orange-800 flex items-center justify-between flex-wrap gap-2">
           <span>🚚 {getSelectedCountKirim(group.no_bon)} item dipilih untuk dikirim sekaligus</span>
