@@ -527,13 +527,6 @@ export default function Home() {
   const packingTapes = bomList.filter((b) => isOptional(b.nama_pm));
   const nonTapes = bomList.filter((b) => !isOptional(b.nama_pm));
 
-  const generateNoBon = () => {
-    const now = new Date();
-    const tgl = now.toISOString().slice(0, 10).replace(/-/g, "");
-    const rand = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
-    return `BON-${tgl}-${rand}`;
-  };
-
   const handleSubmit = async () => {
     // Line Produksi wajib diisi KECUALI untuk divisi yang ada di
     // DIVISI_TANPA_LINE (misalnya "Formulasi").
@@ -579,11 +572,14 @@ export default function Home() {
     }
 
     setLoading(true); setPesan("");
+    // Catatan: no_bon TIDAK dibuat di sini lagi — server (api/bon-pm) yang
+    // membuat & menjamin keunikannya, supaya tidak ada lagi risiko dua
+    // submission (misal BOM produk & Plastik) kebetulan dapat no_bon yang
+    // sama lalu tercampur jadi satu card di History.
     const res = await fetch("/api/bon-pm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        no_bon: generateNoBon(),
         tanggal: new Date().toLocaleDateString("id-ID"),
         jam: new Date().toLocaleTimeString("id-ID", {
           hour: "2-digit",

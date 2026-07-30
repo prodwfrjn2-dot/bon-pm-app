@@ -33,11 +33,39 @@ export async function GET(request) {
   }
 }
 
+// Generate no_bon di SERVER dan pastikan belum ada di sheet BON_PM sebelum
+// dipakai. Ini menggantikan generate di client yang cuma pakai 3 digit
+// acak per hari — terlalu kecil, gampang tabrakan kalau ada beberapa
+// submission di hari yang sama (itu penyebab item Plastik & item BOM
+// produk tercampur jadi satu card di History, seperti kasus BON Ansori).
+async function generateNoBonUnik(existingNoBonSet) {
+  const now = new Date();
+  const tglStr = now
+    .toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" })
+    .replace(/-/g, ""); // YYYYMMDD, aman dari masalah format
+  const jamStr = now
+    .toLocaleTimeString("en-GB", { timeZone: "Asia/Jakarta", hour12: false })
+    .replace(/:/g, ""); // HHMMSS
+
+  let noBon;
+  let attempt = 0;
+  do {
+    const rand = Math.floor(Math.random() * 1_000_000)
+      .toString()
+      .padStart(6, "0");
+    noBon = `BON-${tglStr}-${jamStr}-${rand}`;
+    attempt++;
+  } while (existingNoBonSet.has(noBon) && attempt < 20);
+
+  return noBon;
+}
+
 export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { no_bon, jam, nama_pembuat, line, tujuan, keterangan, sku_produk, divisi, items } = body;
+    const { jam, nama_pembuat, line, tujuan, keterangan, sku_produk, divisi, items } = body;
+    // no_bon TIDAK lagi diambil dari client — dibuat & dijamin unik di sini.
 
     // Shift ditentukan otomatis dari jam submit (WIB), bukan dipilih manual
     // oleh user. Rentang jam berbeda khusus hari Sabtu.
@@ -51,6 +79,16 @@ export async function POST(request) {
     // (tanggal shift itu dimulai), konsisten dengan getShiftSekarangPM(),
     // dan tidak bisa dimanipulasi lewat jam perangkat client.
     const tanggal = getTanggalBonPM();
+
+    // Ambil semua no_bon yang sudah ada supaya bisa dicek tabrakannya
+    // sebelum dipakai untuk submission baru ini.
+    const existingRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "BON_PM!A2:A100000",
+    });
+    const existingNoBonSet = new Set((existingRes.data.values || []).flat());
+
+    const no_bon = await generateNoBonUnik(existingNoBonSet);
 
     // UOM "KG" HANYA berlaku untuk bahan Plastik (nama diawali "PLS") DAN
     // divisinya Formulasi/Central Kitchen. Item PLS yang sama dipilih dari
@@ -96,10 +134,10 @@ export async function POST(request) {
       },
     });
 
-    return new Response(JSON.stringify({ success: true, message: "BON PM berhasil disimpan!", shift, tanggal }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ success: true, message: "BON PM berhasil disimpan!", shift, tanggal, no_bon }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
   } catch (error) {
     return new Response(JSON.stringify({ success: false, error: error.message }), {
       status: 500,
