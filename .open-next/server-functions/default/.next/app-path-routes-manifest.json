@@ -1,0 +1,15 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/approval-penerimaan/route": "/api/approval-penerimaan",
+  "/api/bon-pm/route": "/api/bon-pm",
+  "/api/ceklis/route": "/api/ceklis",
+  "/api/edit-bon/route": "/api/edit-bon",
+  "/api/hapus-bon/route": "/api/hapus-bon",
+  "/api/history/route": "/api/history",
+  "/api/pengiriman/route": "/api/pengiriman",
+  "/api/plastik/route": "/api/plastik",
+  "/api/produk/route": "/api/produk",
+  "/favicon.ico/route": "/favicon.ico",
+  "/page": "/"
+}
